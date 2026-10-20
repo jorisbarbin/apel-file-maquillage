@@ -20,6 +20,28 @@ import "./style.css";
 import MesTicketsSupabase from "./MesTicketsSupabase";
 import { supabase } from "./supabase";
 import { Turnstile } from "@marsidev/react-turnstile";
+import EspaceBenevole from "./EspaceBenevole";
+import EspaceResponsable from "./EspaceResponsable";
+
+// Calcule l'empreinte SHA-256 d'un secret de récupération.
+async function calculerEmpreinteRecuperation(secret) {
+    const donnees = new TextEncoder().encode(secret);
+    const empreinte = await crypto.subtle.digest("SHA-256", donnees);
+
+    return Array.from(new Uint8Array(empreinte))
+        .map((octet) => octet.toString(16).padStart(2, "0"))
+        .join("");
+}
+
+// Génère un secret aléatoire de 256 bits.
+function genererSecretRecuperation() {
+    const octets = crypto.getRandomValues(new Uint8Array(32));
+
+    return Array.from(octets)
+        .map((octet) => octet.toString(16).padStart(2, "0"))
+        .join("");
+}
+
 const KEY = "apel-maquillage-v1";
 const initial = { open: true, next: 42, pin: "2468", tickets: [], workers: [] };
 const uid = () => crypto.randomUUID();
@@ -36,7 +58,38 @@ function App() {
     const [erreurStatut, setErreurStatut] = useState(false);
     const [turnstileToken, setTurnstileToken] = useState(null);
     const [inscriptionEnCours, setInscriptionEnCours] = useState(false);
+    const [inscriptionAConfirmer, setInscriptionAConfirmer] = useState(false);
     const turnstileRef = useRef(null);
+    // Mémoriser la demande d'inscription en cours.
+    // Conserver la demande en attente, même après actualisation de la page.
+    const demandeInscriptionRef = useRef(null);
+
+    useEffect(() => {
+        try {
+            const sauvegarde = sessionStorage.getItem(
+                "apel-inscription-en-attente"
+            );
+
+            if (sauvegarde) {
+                const demande = JSON.parse(sauvegarde);
+
+                if (
+                    typeof demande.demande_id === "string" &&
+                    Array.isArray(demande.prenoms)
+                ) {
+                    demandeInscriptionRef.current = demande.demande_id;
+                    setNames(demande.prenoms);
+                    setInscriptionAConfirmer(true);
+                    setNotice(
+                        "⚠️ Une inscription précédente n'a pas été confirmée. " +
+                        "Ne recommencez pas une nouvelle inscription pour ces enfants."
+                    );
+                }
+            }
+        } catch (error) {
+            console.error("Restauration inscription :", error);
+        }
+    }, []);
     const [db, setDb] = useState(load),
         [page, setPage] = useState("parent"),
         [names, setNames] = useState([""]),
@@ -49,36 +102,29 @@ function App() {
         [notice, setNotice] = useState("");
     useEffect(() => {
         let actif = true;
-
         async function actualiserStatut() {
             const { data, error } = await supabase.rpc(
                 "statut_stand_maquillage"
             );
-
             if (!actif) return;
-
             if (error || !data || data.length === 0) {
                 console.error("Erreur récupération statut :", error);
                 setErreurStatut(true);
                 setStatutStand("indisponible");
                 return;
             }
-
             setErreurStatut(false);
             setStatutStand(data[0].statut);
             setEnfantsEnAttente(Number(data[0].enfants_en_attente));
         }
-
         // Première récupération immédiate
         actualiserStatut();
-
         // Actualisation toutes les 10 secondes
         const intervalle = setInterval(() => {
             if (document.visibilityState === "visible") {
                 actualiserStatut();
             }
         }, 10000);
-
         return () => {
             actif = false;
             clearInterval(intervalle);
@@ -108,113 +154,143 @@ function App() {
         setPage(role);
         setNotice("");
     };
-    function reserve() {
-        const clean = names
-            .map((n) => n.trim())
-            .filter(Boolean)
-            .slice(0, 10);
-        if (!clean.length) return;
-        const created = clean.map((name, i) => ({
-            id: uid(),
-            name,
-            number: db.next + i,
-            status: "waiting",
-            created: Date.now(),
-        }));
-        save((d) => ({
-            ...d,
-            next: d.next + created.length,
-            tickets: [...d.tickets, ...created],
-        }));
-        setMyIds((ids) => [...ids, ...created.map((t) => t.id)]);
-        setNames([""]);
-        setNotice(
-            `${created.length} inscription${created.length > 1 ? "s" : ""} confirmée${created.length > 1 ? "s" : ""} !`,
-        );
-    }
     async function reserve() {
         if (inscriptionEnCours) return;
-
         const clean = names
             .map((n) => n.trim())
             .filter(Boolean)
             .slice(0, 10);
-
         if (!clean.length) {
             setNotice("Veuillez saisir au moins un prénom.");
             return;
         }
-
         if (!turnstileToken) {
             setNotice("La vérification de sécurité est en cours. Réessayez.");
             return;
         }
-
         setInscriptionEnCours(true);
         setNotice("");
+        // Réutiliser le même identifiant si la demande est répétée.
+        if (!demandeInscriptionRef.current) {
+            demandeInscriptionRef.current = crypto.randomUUID();
+        }
 
-        const demandeId = crypto.randomUUID();
+        const demandeId = demandeInscriptionRef.current;
+
+        // Vérifier qu'une nouvelle tentative concerne
+        // exactement les mêmes enfants.
+        const sauvegardeExistante = sessionStorage.getItem(
+            "apel-inscription-en-attente"
+        );
+
+        if (sauvegardeExistante) {
+            let demandePrecedente;
+
+            try {
+                demandePrecedente = JSON.parse(sauvegardeExistante);
+            } catch {
+                setNotice(
+                    "⚠️ Impossible de relire l'inscription précédente."
+                );
+                setInscriptionEnCours(false);
+                return;
+            }
+
+            if (
+                demandePrecedente.demande_id !== demandeId ||
+                JSON.stringify(demandePrecedente.prenoms) !== JSON.stringify(clean)
+            ) {
+                setNotice(
+                    "⚠️ Une inscription précédente est en attente de confirmation. " +
+                    "Conservez les mêmes prénoms pour éviter une double inscription."
+                );
+                setInscriptionEnCours(false);
+                return;
+            }
+        }
+
+        // Sauvegarder la demande avant de contacter Supabase.
+        // Récupérer la demande déjà sauvegardée, si elle existe.
+        const demandeSauvegardee = JSON.parse(
+            sessionStorage.getItem("apel-inscription-en-attente") || "null"
+        );
+
+        // Réutiliser le secret précédent ou en créer un nouveau.
+        const secretRecuperation =
+            demandeSauvegardee?.secret_recuperation ||
+            genererSecretRecuperation();
+
+        // Une fois la demande préparée, ses prénoms ne doivent plus changer.
+        setInscriptionAConfirmer(true);
+
+        // Conserver la preuve privée avant tout appel réseau.
+        sessionStorage.setItem(
+            "apel-inscription-en-attente",
+            JSON.stringify({
+                demande_id: demandeId,
+                prenoms: clean,
+                secret_recuperation: secretRecuperation,
+            })
+        );
 
         try {
+            // Seule l'empreinte sera envoyée à Supabase.
+            const recuperationHash =
+                await calculerEmpreinteRecuperation(secretRecuperation);
+
             const { data, error } = await supabase.functions.invoke(
                 "inscrire-enfants",
                 {
                     body: {
                         prenoms: clean,
                         demande_id: demandeId,
+                        recuperation_hash: recuperationHash,
                         turnstile_token: turnstileToken,
                     },
                 },
             );
-
             if (error || !data?.succes) {
                 throw new Error("L'inscription n'a pas pu être confirmée.");
             }
-
             const tickets = data.tickets || [];
-
             if (!tickets.length || !tickets[0]?.jeton_prive) {
                 throw new Error("Réponse d'inscription incomplète.");
             }
-
             // Conserver le jeton privé sur cet appareil
             const jetonPrive = tickets[0].jeton_prive;
-
             // Récupérer les jetons des inscriptions précédentes
             let jetonsEnregistres = [];
-
             try {
                 jetonsEnregistres = JSON.parse(
                     localStorage.getItem("apel-jetons-familles") || "[]"
                 );
-
                 if (!Array.isArray(jetonsEnregistres)) {
                     jetonsEnregistres = [];
                 }
             } catch {
                 jetonsEnregistres = [];
             }
-
             // Ajouter le nouveau jeton sans supprimer les précédents
             if (!jetonsEnregistres.includes(jetonPrive)) {
                 jetonsEnregistres.push(jetonPrive);
             }
-
             // Enregistrer tous les jetons sur cet appareil
             localStorage.setItem(
                 "apel-jetons-familles",
                 JSON.stringify(jetonsEnregistres)
             );
-
             // Prévenir l'interface que les tickets ont changé
             window.dispatchEvent(new Event("apel-tickets-changed"));
+            // L'inscription est confirmée : la prochaine demande
+            // pourra recevoir un nouvel identifiant.
+            demandeInscriptionRef.current = null;
+            sessionStorage.removeItem("apel-inscription-en-attente");
 
+            setInscriptionAConfirmer(false);
             setNames([""]);
-
             setNotice(
                 `🎉 ${tickets.length} inscription${tickets.length > 1 ? "s" : ""} confirmée${tickets.length > 1 ? "s" : ""} !`,
             );
-
             console.log(
                 "Inscription confirmée :",
                 tickets.map((t) => ({
@@ -222,25 +298,28 @@ function App() {
                     prenom: t.prenom,
                 })),
             );
-
         } catch (error) {
             console.error("Erreur inscription :", error);
-
             setNotice(
                 "Impossible de confirmer l'inscription. Veuillez réessayer.",
             );
         } finally {
             setInscriptionEnCours(false);
             setTurnstileToken(null);
-
             // Un jeton Turnstile ne peut servir qu'une seule fois
             turnstileRef.current?.reset();
         }
     }
-    function callNext() {
-        if (!active.length) return;
-        updateTicket(active[0].id, "called");
+    // Actions locales conservées uniquement pour le tableau de bord de démonstration.
+    function updateTicket(ticketId, statut) {
+        save((d) => ({
+            ...d,
+            tickets: d.tickets.map((t) =>
+                t.id === ticketId ? { ...t, status: statut } : t
+            ),
+        }));
     }
+
     function authenticate() {
         if (pin === db.pin) {
             setAuth(true);
@@ -362,6 +441,7 @@ function App() {
                                             Enfant {i + 1}
                                             <input
                                                 value={n}
+                                                disabled={inscriptionEnCours || inscriptionAConfirmer}
                                                 placeholder="Son prénom"
                                                 maxLength="35"
                                                 onChange={(e) =>
@@ -375,6 +455,7 @@ function App() {
                                             <button
                                                 className="iconbutton"
                                                 aria-label="Supprimer"
+                                                disabled={inscriptionEnCours || inscriptionAConfirmer}
                                                 onClick={() =>
                                                     setNames((a) => a.filter((_, j) => j !== i))
                                                 }
@@ -386,6 +467,7 @@ function App() {
                                 ))}
                                 <button
                                     className="outline"
+                                    disabled={inscriptionEnCours || inscriptionAConfirmer}
                                     onClick={() =>
                                         setNames((a) => (a.length < 10 ? [...a, ""] : a))
                                     }
@@ -413,7 +495,9 @@ function App() {
                                     disabled={
                                         inscriptionEnCours ||
                                         !turnstileToken ||
+
                                         !names.some((n) => n.trim())
+
                                     }
                                 >
                                     <Ticket size={19} /> Confirmer{" "}
@@ -431,7 +515,7 @@ function App() {
                             positions évoluent automatiquement.
                         </div>
                     </>
-                ) : !auth ? (
+                ) : false ? (
                     <section className="card login">
                         <button className="link" onClick={() => enter("parent")}>
                             <ArrowLeft size={16} /> Retour
@@ -459,73 +543,9 @@ function App() {
                         {notice && <p className="error">{notice}</p>}
                     </section>
                 ) : page === "volunteer" ? (
-                    <>
-                        <div className="sectionhead">
-                            <div>
-                                <div className="eyebrow">ESPACE BÉNÉVOLE</div>
-                                <h1>À votre rythme 🎨</h1>
-                            </div>
-                            <button
-                                className="outline small"
-                                onClick={() => {
-                                    setAuth(false);
-                                    enter("parent");
-                                }}
-                            >
-                                <LogOut size={16} /> Quitter
-                            </button>
-                        </div>
-                        <section className="card">
-                            <div className="status green">
-                                ● {active.length} enfant{active.length > 1 ? "s" : ""} en
-                                attente
-                            </div>
-                            {working.length ? (
-                                <>
-                                    <h2>En cours de maquillage</h2>
-                                    {working.map((t) => (
-                                        <div className="current" key={t.id}>
-                                            <span>#{String(t.number).padStart(3, "0")}</span>
-                                            <h1>{t.name}</h1>
-                                            <button
-                                                className="primary"
-                                                onClick={() => updateTicket(t.id, "done")}
-                                            >
-                                                <CheckCircle2 /> Terminé
-                                            </button>
-                                            <button
-                                                className="outline"
-                                                onClick={() => updateTicket(t.id, "waiting")}
-                                            >
-                                                Absent / remettre en attente
-                                            </button>
-                                        </div>
-                                    ))}
-                                </>
-                            ) : (
-                                <>
-                                    <h2>Prochain enfant</h2>
-                                    {active.length ? (
-                                        <div className="current">
-                                            <span>#{String(active[0].number).padStart(3, "0")}</span>
-                                            <h1>{active[0].name}</h1>
-                                            <button className="primary" onClick={callNext}>
-                                                <Paintbrush /> Appeler cet enfant
-                                            </button>
-                                        </div>
-                                    ) : (
-                                        <div className="empty">
-                                            ✨ La file est vide pour le moment.
-                                        </div>
-                                    )}
-                                </>
-                            )}
-                        </section>
-                        <p className="muted center">
-                            Pas de chrono, pas d'objectif. Prenez le temps de faire plaisir
-                            aux enfants.
-                        </p>
-                    </>
+                    <EspaceBenevole />
+                ) : page === "admin" ? (
+                    <EspaceResponsable />
                 ) : (
                     <>
                         <div className="sectionhead">
@@ -670,7 +690,5 @@ function App() {
     );
 }
 createRoot(document.getElementById("root")).render(<App />);
-
 import { testerConnexion } from "./supabase";
-
 testerConnexion();
