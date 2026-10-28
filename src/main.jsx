@@ -684,7 +684,12 @@ function App() {
                 </nav>
             </footer>
             <div className="demo">
-                PROTOTYPE LOCAL · données de démonstration sur cet appareil uniquement
+                🔒 Vos données sont utilisées pour la gestion
+                de la file d'attente du maquillage.
+                {" "}·{" "}
+                <a href="/confidentialite.html">
+                    Protection des données
+                </a>
             </div>
         </div>
     );
