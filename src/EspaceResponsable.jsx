@@ -20,6 +20,8 @@ export default function EspaceResponsable() {
     const [enfantsEnAttente, setEnfantsEnAttente] = useState(0);
     const [enfantsAppeles, setEnfantsAppeles] = useState(0);
     const [benevoles, setBenevoles] = useState([]);
+    const [benevolesRetires, setBenevolesRetires] = useState([]);
+    const [corbeilleBenevolesDeployee, setCorbeilleBenevolesDeployee] = useState(false);
     const [nouveauPrenom, setNouveauPrenom] = useState("");
     const demandeBenevoleId = useRef(null);
     const ajoutBenevoleEnCours = useRef(false);
@@ -121,6 +123,57 @@ export default function EspaceResponsable() {
         }
         setBenevoles(data.benevoles || []);
     }, []);
+    // Consultation de la corbeille des bénévoles, réservée au responsable.
+    const actualiserCorbeilleBenevoles = useCallback(async (token) => {
+        const { data, error } = await supabase.functions.invoke(
+            "consulter-corbeille-benevoles-responsable",
+            { body: { session_token: token } }
+        );
+        if (error || !data?.succes) {
+            throw new Error(data?.erreur || "Impossible de consulter la corbeille des bénévoles.");
+        }
+        setBenevolesRetires(data.benevoles || []);
+    }, []);
+
+    // Retirer ou restaurer un bénévole sans supprimer son historique.
+    async function modifierCorbeilleBenevole(benevole, action) {
+        if (!session || chargement) return;
+        if (action === "retirer-benevole" && benevole.occupe) return;
+
+        const question = action === "retirer-benevole"
+            ? `Retirer ${benevole.prenom} de l'équipe et le placer dans la corbeille ? Ses sessions seront révoquées.`
+            : `Restaurer ${benevole.prenom} dans l'équipe ? Cette personne restera désactivée.`;
+        if (!window.confirm(question)) return;
+
+        setChargement(true);
+        setErreur("");
+        setMessage("");
+        try {
+            const { data, error } = await supabase.functions.invoke("gestion-stand", {
+                body: {
+                    session_token: session.session_token,
+                    action,
+                    benevole_id: benevole.id,
+                },
+            });
+            if (error || !data?.succes) {
+                throw new Error(data?.erreur || "Modification du bénévole impossible.");
+            }
+            await Promise.all([
+                actualiserBenevoles(session.session_token),
+                actualiserCorbeilleBenevoles(session.session_token),
+            ]);
+            setMessage(action === "retirer-benevole"
+                ? `✅ ${benevole.prenom} a été placé dans la corbeille.`
+                : `✅ ${benevole.prenom} a été restauré, mais reste désactivé.`);
+        } catch (err) {
+            console.error("Modification corbeille bénévole :", err);
+            setErreur(err.message || "Impossible de modifier ce bénévole.");
+        } finally {
+            setChargement(false);
+        }
+    }
+
     // Retrouver une session après un rechargement.
     useEffect(() => {
         let actif = true;
@@ -329,6 +382,22 @@ export default function EspaceResponsable() {
             clearInterval(intervalle);
         };
     }, [session]);
+    // Actualiser régulièrement la corbeille des bénévoles.
+    useEffect(() => {
+        if (!session) return;
+        async function chargerCorbeilleBenevoles() {
+            if (document.visibilityState !== "visible") return;
+            try {
+                await actualiserCorbeilleBenevoles(session.session_token);
+            } catch (err) {
+                console.error("Actualisation corbeille bénévoles :", err);
+            }
+        }
+        chargerCorbeilleBenevoles();
+        const intervalle = setInterval(chargerCorbeilleBenevoles, 10000);
+        return () => clearInterval(intervalle);
+    }, [session, actualiserCorbeilleBenevoles]);
+
     // Ajouter un bénévole depuis l'espace responsable.
     async function ajouterBenevole() {
         const prenom = nouveauPrenom.trim();
@@ -445,6 +514,8 @@ export default function EspaceResponsable() {
         setSession(null);
 
         setTicketsAnnules([]);
+        setBenevolesRetires([]);
+        setCorbeilleBenevolesDeployee(false);
 
         setStatut(null);
         setPin("");
@@ -709,17 +780,62 @@ export default function EspaceResponsable() {
                                     </small>
                                 )}
                             </div>
-                            <button
-                                className="outline small"
-                                type="button"
-                                onClick={() => modifierEtatBenevole(benevole)}
-                                disabled={chargement || (benevole.actif && benevole.occupe)}
-                                title={benevole.actif && benevole.occupe ? "Terminer d'abord le maquillage en cours" : undefined}
-                            >
-                                {benevole.actif ? "🔴 Désactiver" : "🟢 Réactiver"}
-                            </button>
+                            <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
+                                <button
+                                    className="outline small"
+                                    type="button"
+                                    onClick={() => modifierEtatBenevole(benevole)}
+                                    disabled={chargement || benevole.occupe}
+                                    title={benevole.occupe ? "Terminer d'abord le maquillage en cours" : undefined}
+                                >
+                                    {benevole.actif ? "🔴 Désactiver" : "🟢 Réactiver"}
+                                </button>
+                                <button
+                                    className="outline small"
+                                    type="button"
+                                    onClick={() => modifierCorbeilleBenevole(benevole, "retirer-benevole")}
+                                    disabled={chargement || benevole.occupe}
+                                    title={benevole.occupe ? "Terminer d'abord le maquillage en cours" : "Placer dans la corbeille"}
+                                >
+                                    🗑️ Retirer
+                                </button>
+                            </div>
                         </div>
                     ))
+                )}
+            </section>
+            <section className="card">
+                <h2>🗑️ Corbeille des bénévoles ({benevolesRetires.length})</h2>
+                <p className="muted">Les bénévoles restaurés restent désactivés jusqu'à leur réactivation.</p>
+                <button
+                    type="button"
+                    className="outline"
+                    aria-expanded={corbeilleBenevolesDeployee}
+                    onClick={() => setCorbeilleBenevolesDeployee((ancien) => !ancien)}
+                >
+                    {corbeilleBenevolesDeployee ? "▼ Masquer la corbeille" : "▶ Afficher la corbeille"}
+                </button>
+                {corbeilleBenevolesDeployee && (
+                    benevolesRetires.length === 0 ? (
+                        <div className="empty">La corbeille est vide.</div>
+                    ) : (
+                        benevolesRetires.map((benevole) => (
+                            <div className="listitem" key={benevole.id}>
+                                <div>
+                                    <strong>{benevole.prenom}</strong>
+                                    <small>🗑️ Bénévole retiré</small>
+                                </div>
+                                <button
+                                    type="button"
+                                    className="outline small"
+                                    disabled={chargement}
+                                    onClick={() => modifierCorbeilleBenevole(benevole, "restaurer-benevole")}
+                                >
+                                    ♻️ Restaurer
+                                </button>
+                            </div>
+                        ))
+                    )
                 )}
             </section>
             <div style={{ marginTop: "20px", marginBottom: "24px" }}>
