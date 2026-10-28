@@ -2,6 +2,25 @@ import React, { useCallback, useEffect, useState } from "react";
 import { supabase } from "./supabase";
 
 const CLE_SESSION = "apel-session-benevole";
+const MESSAGE_ACCES_REFUSE =
+    "🔒 Votre accès bénévole a été désactivé ou votre session a expiré. Contactez le responsable du stand.";
+
+// Une panne réseau ne doit jamais être confondue avec une session refusée.
+async function verifierReponseFonction(data, error, message) {
+    if (error) {
+        const statut = error.context?.status;
+        if (statut === 401 || statut === 403) {
+            const refus = new Error(MESSAGE_ACCES_REFUSE);
+            refus.accesRefuse = true;
+            throw refus;
+        }
+        throw new Error(message);
+    }
+    if (!data?.succes) {
+        throw new Error(data?.erreur || message);
+    }
+}
+
 
 export default function EspaceBenevole() {
     const [benevoles, setBenevoles] = useState([]);
@@ -45,9 +64,7 @@ export default function EspaceBenevole() {
             }
         );
 
-        if (error || !data?.succes) {
-            throw new Error("Session invalide ou consultation impossible.");
-        }
+        await verifierReponseFonction(data, error, "Impossible de consulter le ticket.");
 
         setTicket(data.ticket);
     }, []);
@@ -77,8 +94,24 @@ export default function EspaceBenevole() {
                 if (actif) {
                     setSession(ancienneSession);
                 }
-            } catch {
-                sessionStorage.removeItem(CLE_SESSION);
+            } catch (err) {
+                if (!actif) return;
+                if (err.accesRefuse) {
+                    sessionStorage.removeItem(CLE_SESSION);
+                    setTicket(null);
+                    setErreur(MESSAGE_ACCES_REFUSE);
+                } else {
+                    // Garder la session si Supabase est momentanément indisponible.
+                    try {
+                        const ancienneSession = JSON.parse(valeur);
+                        if (ancienneSession?.session_token && Date.parse(ancienneSession.expires_at) > Date.now()) {
+                            setSession(ancienneSession);
+                        }
+                    } catch {
+                        sessionStorage.removeItem(CLE_SESSION);
+                    }
+                    setErreur("Connexion temporairement indisponible. Réessayez dans un instant.");
+                }
             }
         }
 
@@ -119,20 +152,16 @@ export default function EspaceBenevole() {
                 expires_at: data.expires_at,
             };
 
-            sessionStorage.setItem(
-                CLE_SESSION,
-                JSON.stringify(nouvelleSession)
-            );
-
+            // Vérifier l'accès avant d'afficher l'espace de travail.
+            await actualiserTicket(data.session_token);
+            sessionStorage.setItem(CLE_SESSION, JSON.stringify(nouvelleSession));
             setSession(nouvelleSession);
             setPin("");
-
-            await actualiserTicket(data.session_token);
         } catch (err) {
             console.error("Connexion bénévole :", err);
-            setErreur(
-                "Connexion impossible. Vérifiez le code PIN ou réessayez plus tard."
-            );
+            setErreur(err.accesRefuse
+                ? MESSAGE_ACCES_REFUSE
+                : "Connexion impossible. Vérifiez le code PIN ou réessayez plus tard.");
         } finally {
             setChargement(false);
         }
@@ -156,9 +185,7 @@ export default function EspaceBenevole() {
                 }
             );
 
-            if (error || !data?.succes) {
-                throw new Error("Action impossible.");
-            }
+            await verifierReponseFonction(data, error, "Action impossible.");
 
             // Libérer la bénévole après une fin de maquillage
             // ou lorsqu'un enfant est déclaré absent.
@@ -169,7 +196,11 @@ export default function EspaceBenevole() {
             }
         } catch (err) {
             console.error("Action bénévole :", err);
-            setErreur("Impossible d'effectuer cette action.");
+            if (err.accesRefuse) {
+                deconnecter(MESSAGE_ACCES_REFUSE);
+            } else {
+                setErreur("Impossible d'effectuer cette action.");
+            }
         } finally {
             setChargement(false);
         }
@@ -182,21 +213,27 @@ export default function EspaceBenevole() {
         const intervalle = setInterval(() => {
             if (document.visibilityState !== "visible") return;
 
-            actualiserTicket(session.session_token).catch((err) => {
+            actualiserTicket(session.session_token).then(() => {
+                setErreur("");
+            }).catch((err) => {
                 console.error("Actualisation bénévole :", err);
-                setErreur("Impossible d'actualiser le ticket.");
+                if (err.accesRefuse) {
+                    deconnecter(MESSAGE_ACCES_REFUSE);
+                } else {
+                    setErreur("Impossible d'actualiser le ticket. Réessayez dans un instant.");
+                }
             });
         }, 10000);
 
         return () => clearInterval(intervalle);
     }, [session, actualiserTicket]);
 
-    function deconnecter() {
+    function deconnecter(message = "") {
         sessionStorage.removeItem(CLE_SESSION);
         setSession(null);
         setTicket(null);
         setPin("");
-        setErreur("");
+        setErreur(typeof message === "string" ? message : "");
     }
 
     // Écran de connexion
@@ -269,7 +306,7 @@ export default function EspaceBenevole() {
 
                 <button
                     className="outline small"
-                    onClick={deconnecter}
+                    onClick={() => deconnecter()}
                 >
                     Quitter
                 </button>

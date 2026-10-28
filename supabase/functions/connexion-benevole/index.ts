@@ -88,7 +88,7 @@ Deno.serve(async (req)=>{
       }, 429);
     }
     // Vérifier que le bénévole existe et est actif
-    const { data: benevole, error: erreurBenevole } = await supabase.from("benevoles").select("id, prenom, actif").eq("id", benevoleId).eq("actif", true).maybeSingle();
+    const { data: benevole, error: erreurBenevole } = await supabase.from("benevoles").select("id, prenom, actif").eq("id", benevoleId).eq("actif", true).eq("retire", false).maybeSingle();
     if (erreurBenevole || !benevole || !pinsIdentiques(pin, pinSecret)) {
       return reponse({
         erreur: "Bénévole ou code PIN incorrect."

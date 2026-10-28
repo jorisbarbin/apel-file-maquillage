@@ -94,7 +94,7 @@ Deno.serve(async (req)=>{
       }, 401);
     }
     // Vérifier que le bénévole est toujours actif
-    const { data: benevole, error: erreurBenevole } = await supabase.from("benevoles").select("id, prenom, actif").eq("id", session.benevole_id).eq("actif", true).maybeSingle();
+    const { data: benevole, error: erreurBenevole } = await supabase.from("benevoles").select("id, prenom, actif").eq("id", session.benevole_id).eq("actif", true).eq("retire", false).maybeSingle();
     if (erreurBenevole) {
       console.error("Erreur lecture bénévole :", erreurBenevole.message);
       return reponse({
