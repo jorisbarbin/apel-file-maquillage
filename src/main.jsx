@@ -15,6 +15,7 @@ import {
     PlayCircle,
     LogOut,
     Bell,
+    Facebook,
 } from "lucide-react";
 import "./style.css";
 import MesTicketsSupabase from "./MesTicketsSupabase";
@@ -331,6 +332,7 @@ function App() {
         (t) => t.status !== "done" && t.status !== "cancelled",
     );
     return (
+
         <div className="shell">
             <header>
                 <div className="brand">
@@ -343,9 +345,23 @@ function App() {
                         <small>Marché de Noël · Saint-Martin Saint-Joseph</small>
                     </div>
                 </div>
-                <span className="tag">🎄 Maquillage</span>
+
+                <div className="header-actions">
+                    <a
+                        href="https://www.facebook.com/groups/1035057636839740/"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="facebook-link"
+                    >
+                        <Facebook size={18} aria-hidden="true" />
+                        <span>Rejoignez-nous sur Facebook</span>
+                    </a>
+
+                    <span className="tag">🎄 Maquillage</span>
+                </div>
             </header>
             <main>
+
                 {page === "parent" ? (
                     <>
                         <MesTicketsSupabase />
