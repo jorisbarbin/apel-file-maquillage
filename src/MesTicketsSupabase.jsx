@@ -1,5 +1,9 @@
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import { supabase } from "./supabase";
+import {
+  activerAudio,
+  jouerAlerteSonore,
+} from "./alertesSonores";
 
 const CLE_JETONS = "apel-jetons-familles";
 
@@ -43,6 +47,20 @@ export default function MesTicketsSupabase() {
   const [tickets, setTickets] = useState([]);
   const [chargement, setChargement] = useState(true);
   const [erreur, setErreur] = useState("");
+  const [audioActif, setAudioActif] = useState(false);
+  const anciensTicketsRef = useRef(null);
+  const audioActifRef = useRef(false);
+
+  async function activerAlertes() {
+    const succes = await activerAudio();
+
+    setAudioActif(succes);
+    audioActifRef.current = succes;
+
+    if (succes) {
+      jouerAlerteSonore();
+    }
+  }
 
   const actualiserTickets = useCallback(async () => {
     const jetons = recupererJetons();
@@ -97,6 +115,45 @@ export default function MesTicketsSupabase() {
       ticketsUniques.sort(
         (a, b) => a.numero - b.numero
       );
+
+
+      const anciensTickets = anciensTicketsRef.current;
+
+      if (anciensTickets && audioActifRef.current) {
+        for (const ticket of ticketsUniques) {
+          const ancien = anciensTickets.get(ticket.numero);
+
+          if (!ancien) continue;
+
+          const approche =
+            ancien.statut === "attente" &&
+            ticket.statut === "attente" &&
+            Number(ancien.enfants_devant) > 5 &&
+            Number(ticket.enfants_devant) <= 5;
+
+          const appele =
+            ancien.statut !== "appele" &&
+            ancien.statut !== "en_cours" &&
+            (ticket.statut === "appele" ||
+              ticket.statut === "en_cours");
+
+          if (approche || appele) {
+            jouerAlerteSonore();
+            break;
+          }
+        }
+      }
+
+      anciensTicketsRef.current = new Map(
+        ticketsUniques.map((ticket) => [
+          ticket.numero,
+          {
+            statut: ticket.statut,
+            enfants_devant: ticket.enfants_devant,
+          },
+        ])
+      );
+
 
       setTickets(ticketsUniques);
       setErreur("");
@@ -178,6 +235,28 @@ export default function MesTicketsSupabase() {
       )}
 
       {erreur && <p className="error">{erreur}</p>}
+
+
+      <div className="card" style={{ marginBottom: "16px" }}>
+        <h3>🔔 Alertes de passage</h3>
+
+        <p className="muted">
+          Recevez une alerte sonore lorsque votre tour approche.
+          Cette fonction nécessite de garder la page ouverte
+          et active.
+        </p>
+
+        <button
+          className="outline"
+          onClick={activerAlertes}
+          disabled={audioActif}
+        >
+          {audioActif
+            ? "✅ Alertes sonores activées"
+            : "🔔 Activer les alertes sonores"}
+        </button>
+      </div>
+
 
       <div className="ticketgrid">
         {tickets.map((ticket) => (
