@@ -497,6 +497,19 @@ footer button {
     color: #fff;
 }
 
+.footer-social {
+    display: flex;
+    justify-content: center;
+    padding: 16px 0;
+}
+
+.footer-social .facebook-link {
+    width: fit-content;
+    max-width: 100%;
+    flex: none;
+    text-align: center;
+}
+
 @media (max-width: 600px) {
     .header-actions {
         width: 100%;

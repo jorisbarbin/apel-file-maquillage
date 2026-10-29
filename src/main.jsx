@@ -346,19 +346,8 @@ function App() {
                     </div>
                 </div>
 
-                <div className="header-actions">
-                    <a
-                        href="https://www.facebook.com/groups/1035057636839740/"
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="facebook-link"
-                    >
-                        <Facebook size={18} aria-hidden="true" />
-                        <span>Rejoignez-nous sur Facebook</span>
-                    </a>
+                <span className="tag">🎄 Maquillage</span>
 
-                    <span className="tag">🎄 Maquillage</span>
-                </div>
             </header>
             <main>
 
@@ -705,6 +694,17 @@ function App() {
                 {" "}·{" "}
                 <a href="/confidentialite.html">
                     Protection des données
+                </a>
+            </div>
+            <div className="footer-social">
+                <a
+                    href="https://www.facebook.com/groups/1035057636839740/"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="facebook-link"
+                >
+                    <Facebook size={18} aria-hidden="true" />
+                    Rejoignez-nous sur Facebook
                 </a>
             </div>
         </div>
