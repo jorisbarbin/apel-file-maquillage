@@ -4,6 +4,7 @@ import {
   activerAudio,
   jouerAlerteSonore,
 } from "./alertesSonores";
+import { creerAbonnementPush } from "./notificationsPush";
 
 const CLE_JETONS = "apel-jetons-familles";
 
@@ -48,6 +49,9 @@ export default function MesTicketsSupabase() {
   const [chargement, setChargement] = useState(true);
   const [erreur, setErreur] = useState("");
   const [audioActif, setAudioActif] = useState(false);
+  const [pushActif, setPushActif] = useState(false);
+  const [activationPushEnCours, setActivationPushEnCours] = useState(false);
+
   const anciensTicketsRef = useRef(null);
   const audioActifRef = useRef(false);
 
@@ -59,6 +63,62 @@ export default function MesTicketsSupabase() {
 
     if (succes) {
       jouerAlerteSonore();
+    }
+  }
+
+  async function activerNotificationsPush() {
+    const jetons = recupererJetons();
+
+    if (jetons.length === 0) {
+      alert("Aucune inscription familiale trouvée sur cet appareil.");
+      return;
+    }
+
+    setActivationPushEnCours(true);
+
+    try {
+      // Demander l'autorisation et créer l'abonnement du navigateur.
+      const abonnement = await creerAbonnementPush();
+
+      // Associer cet appareil à toutes les familles suivies.
+      const resultats = await Promise.allSettled(
+        jetons.map(async (jeton) => {
+          const { data, error } = await supabase.functions.invoke(
+            "abonner-push",
+            {
+              body: {
+                jeton_prive: jeton,
+                abonnement,
+              },
+            }
+          );
+
+          if (error || !data?.succes) {
+            throw new Error("Enregistrement familial impossible.");
+          }
+        })
+      );
+
+      const echecs = resultats.filter(
+        (resultat) => resultat.status === "rejected"
+      );
+
+      if (echecs.length > 0) {
+        throw new Error(
+          `Notifications enregistrées pour ${jetons.length - echecs.length
+          } inscription(s) sur ${jetons.length}.`
+        );
+      }
+
+      setPushActif(true);
+    } catch (error) {
+      console.error("Activation Push :", error);
+
+      alert(
+        error.message || "Impossible d'activer les notifications."
+      );
+    } finally {
+      setActivationPushEnCours(false);
     }
   }
 
@@ -257,6 +317,18 @@ export default function MesTicketsSupabase() {
         </button>
       </div>
 
+      <button
+        className="outline"
+        type="button"
+        onClick={activerNotificationsPush}
+        disabled={activationPushEnCours || pushActif}
+      >
+        {activationPushEnCours
+          ? "Activation des notifications..."
+          : pushActif
+            ? "✅ Notifications activées"
+            : "📲 Activer les notifications sur mon téléphone"}
+      </button>
 
       <div className="ticketgrid">
         {tickets.map((ticket) => (

@@ -1,0 +1,20 @@
+
+{
+  "name": "Le coin des petits lutins",
+  "short_name": "Petits lutins",
+  "description": "Suivez votre place dans la file d'attente du stand maquillage de l'APEL Saint-Martin Saint-Joseph.",
+  "lang": "fr",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#f8f7f2",
+  "theme_color": "#276b49",
+  "icons": [
+    {
+      "src": "/logo-apel.jpeg",
+      "sizes": "any",
+      "type": "image/jpeg",
+      "purpose": "any"
+    }
+  ]
+}

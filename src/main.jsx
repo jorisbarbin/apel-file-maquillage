@@ -713,3 +713,23 @@ function App() {
 createRoot(document.getElementById("root")).render(<App />);
 import { testerConnexion } from "./supabase";
 testerConnexion();
+
+
+if ("serviceWorker" in navigator) {
+    window.addEventListener("load", async () => {
+        try {
+            const registration =
+                await navigator.serviceWorker.register("/sw.js");
+
+            console.log(
+                "Service worker enregistré :",
+                registration.scope
+            );
+        } catch (error) {
+            console.error(
+                "Erreur d'enregistrement du service worker :",
+                error
+            );
+        }
+    });
+}
