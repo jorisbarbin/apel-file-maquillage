@@ -19,7 +19,7 @@ self.addEventListener("push", (event) => {
         badge: "/logo-apel.jpeg",
         tag: donnees.tag || "apel-file-maquillage",
         data: {
-            url: "/",
+            url: donnees.url || "/",
         },
     };
 
@@ -31,7 +31,15 @@ self.addEventListener("push", (event) => {
 self.addEventListener("notificationclick", (event) => {
     event.notification.close();
 
+    const destination = event.notification.data?.url || "/";
+    const url = new URL(destination, self.location.origin);
+
+    // Interdire l'ouverture d'un site externe.
+    if (url.origin !== self.location.origin) {
+        return;
+    }
+
     event.waitUntil(
-        clients.openWindow("/")
+        clients.openWindow(url.href)
     );
 });
