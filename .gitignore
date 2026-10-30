@@ -4,3 +4,6 @@ dist/
 .env.local
 .env.*.local
 .DS_Store
+
+# Sauvegardes locales contenant des données de production
+/sauvegardes-locales/
