@@ -1,6 +1,34 @@
 
 import { createClient } from "npm:@supabase/supabase-js@2";
 
+async function calculerEmpreinte(
+    identifiantFamille: string,
+    secret: string
+): Promise<string> {
+    const encodeur = new TextEncoder();
+
+    const cle = await crypto.subtle.importKey(
+        "raw",
+        encodeur.encode(secret),
+        {
+            name: "HMAC",
+            hash: "SHA-256",
+        },
+        false,
+        ["sign"]
+    );
+
+    const signature = await crypto.subtle.sign(
+        "HMAC",
+        cle,
+        encodeur.encode(`abonner-push:famille:${identifiantFamille}`)
+    );
+
+    return Array.from(new Uint8Array(signature))
+        .map((octet) => octet.toString(16).padStart(2, "0"))
+        .join("");
+}
+
 const corsHeaders = {
     "Access-Control-Allow-Origin": "*",
     "Access-Control-Allow-Headers":
@@ -146,6 +174,56 @@ Deno.serve(async (req) => {
             return reponse(
                 { erreur: "Accès famille refusé." },
                 403
+            );
+        }
+
+        // Limiter les demandes répétées d'abonnement Push.
+        const rateLimitSecret = Deno.env.get("RATE_LIMIT_SECRET");
+
+        if (!rateLimitSecret) {
+            return reponse(
+                { erreur: "Protection temporairement indisponible." },
+                503
+            );
+        }
+
+        if (req.method !== "POST") {
+            return reponse(
+                { erreur: "Méthode non autorisée." },
+                405
+            );
+        }
+
+        const empreinte = await calculerEmpreinte(
+            famille.id,
+            rateLimitSecret
+        );
+
+        const { data: autorise, error: erreurLimite } =
+            await supabase.rpc(
+                "autoriser_tentative_abonnement_push",
+                { p_cle_hash: empreinte }
+            );
+
+        if (erreurLimite) {
+            console.error(
+                "Limitation abonnement Push :",
+                erreurLimite.message
+            );
+
+            return reponse(
+                { erreur: "Vérification temporairement indisponible." },
+                503
+            );
+        }
+
+        if (autorise !== true) {
+            return reponse(
+                {
+                    erreur:
+                        "Trop de demandes de notifications. Réessayez dans quelques minutes.",
+                },
+                429
             );
         }
 
