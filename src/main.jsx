@@ -503,9 +503,12 @@ function App() {
                                     onExpire={() => {
                                         setTurnstileToken(null);
                                     }}
-                                    onError={() => {
+                                    onError={(code) => {
                                         setTurnstileToken(null);
-                                        console.error("Erreur de vérification Cloudflare");
+                                        console.error("Erreur Cloudflare Turnstile, code :", code);
+                                        setNotice(
+                                            `La vérification de sécurité a échoué (code ${code}).`
+                                        );
                                     }}
                                 />
                                 <button
