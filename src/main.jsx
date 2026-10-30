@@ -251,7 +251,20 @@ function App() {
                 },
             );
             if (error || !data?.succes) {
-                throw new Error("L'inscription n'a pas pu être confirmée.");
+                let message = data?.erreur;
+
+                if (!message && error?.context) {
+                    try {
+                        const details = await error.context.json();
+                        message = details?.erreur;
+                    } catch {
+                        // La réponse n'est pas forcément au format JSON.
+                    }
+                }
+
+                throw new Error(
+                    message || "L'inscription n'a pas pu être confirmée."
+                );
             }
             const tickets = data.tickets || [];
             if (!tickets.length || !tickets[0]?.jeton_prive) {
@@ -302,6 +315,7 @@ function App() {
         } catch (error) {
             console.error("Erreur inscription :", error);
             setNotice(
+                error.message ||
                 "Impossible de confirmer l'inscription. Veuillez réessayer.",
             );
         } finally {
