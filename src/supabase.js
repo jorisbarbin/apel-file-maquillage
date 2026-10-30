@@ -6,11 +6,11 @@ const supabaseKey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
 export const supabase = createClient(supabaseUrl, supabaseKey);
 
 export async function testerConnexion() {
-  const { data, error } = await supabase.auth.getSession();
+const { error } = await supabase.auth.getSession();
 
   if (error) {
     console.error('Erreur Supabase :', error.message);
   } else {
-    console.log('Client Supabase initialisé correctement.', data);
+    console.log('Client Supabase initialisé correctement.');
   }
 }
