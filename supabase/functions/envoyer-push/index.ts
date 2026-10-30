@@ -98,7 +98,7 @@ Deno.serve(async (req) => {
 
   if (modePush === "production") {
     const projetProductionAttendu = Deno.env.get(
-      "SUPABASE_PRODUCTION_PROJECT_ID"
+      "PUSH_PRODUCTION_PROJECT_ID"
     );
 
     const domaineAttendu = projetProductionAttendu
