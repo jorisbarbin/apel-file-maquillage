@@ -207,8 +207,8 @@ export default function MesTicketsSupabase() {
       return;
     }
 
-    setChargement(true);
-
+    // Le chargement initial est déjà activé par useState(true).
+    // Les actualisations suivantes restent silencieuses.
     try {
       // Consulter tous les groupes de tickets
       const resultats = await Promise.all(
