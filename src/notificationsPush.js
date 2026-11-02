@@ -48,3 +48,21 @@ export async function creerAbonnementPush() {
 
   return abonnement.toJSON();
 }
+
+// Récupérer un abonnement existant sans solliciter l'utilisateur.
+// Utilisé pour associer les nouvelles inscriptions familiales.
+export async function recupererAbonnementPushExistant() {
+  if (
+    !("serviceWorker" in navigator) ||
+    !("PushManager" in window) ||
+    !("Notification" in window) ||
+    Notification.permission !== "granted"
+  ) {
+    return null;
+  }
+
+  const registration = await navigator.serviceWorker.ready;
+  const abonnement = await registration.pushManager.getSubscription();
+
+  return abonnement ? abonnement.toJSON() : null;
+}

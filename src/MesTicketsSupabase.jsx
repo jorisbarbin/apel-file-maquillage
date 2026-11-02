@@ -4,7 +4,10 @@ import {
   activerAudio,
   jouerAlerteSonore,
 } from "./alertesSonores";
-import { creerAbonnementPush } from "./notificationsPush";
+import {
+  creerAbonnementPush,
+  recupererAbonnementPushExistant,
+} from "./notificationsPush";
 
 const CLE_JETONS = "apel-jetons-familles";
 
@@ -54,6 +57,71 @@ export default function MesTicketsSupabase() {
 
   const anciensTicketsRef = useRef(null);
   const audioActifRef = useRef(false);
+  const jetonsPushSynchronisesRef = useRef(new Set());
+  const synchronisationPushEnCoursRef = useRef(false);
+
+  const synchroniserNotificationsPush = useCallback(async () => {
+    if (synchronisationPushEnCoursRef.current) return;
+
+    synchronisationPushEnCoursRef.current = true;
+
+    try {
+      const jetons = recupererJetons();
+      if (jetons.length === 0) {
+        setPushActif(false);
+        return;
+      }
+
+      // Réutiliser uniquement un abonnement déjà autorisé.
+      const abonnement = await recupererAbonnementPushExistant();
+
+      if (!abonnement) {
+        setPushActif(false);
+        return;
+      }
+
+      const nouveauxJetons = jetons.filter(
+        (jeton) => !jetonsPushSynchronisesRef.current.has(jeton)
+      );
+
+      if (nouveauxJetons.length > 0) {
+        setPushActif(false);
+      }
+
+      const resultats = await Promise.allSettled(
+        nouveauxJetons.map(async (jeton) => {
+          const { data, error } = await supabase.functions.invoke(
+            "abonner-push",
+            {
+              body: {
+                jeton_prive: jeton,
+                abonnement,
+              },
+            }
+          );
+
+          if (error || !data?.succes) {
+            throw new Error("Synchronisation Push impossible.");
+          }
+
+          jetonsPushSynchronisesRef.current.add(jeton);
+        })
+      );
+
+      const toutEstSynchronise =
+        resultats.every((r) => r.status === "fulfilled") &&
+        jetons.every((jeton) =>
+          jetonsPushSynchronisesRef.current.has(jeton)
+        );
+
+      setPushActif(toutEstSynchronise);
+    } catch (error) {
+      console.error("Synchronisation Push :", error);
+      setPushActif(false);
+    } finally {
+      synchronisationPushEnCoursRef.current = false;
+    }
+  }, []);
 
   async function activerAlertes() {
     const succes = await activerAudio();
@@ -110,6 +178,10 @@ export default function MesTicketsSupabase() {
         );
       }
 
+      jetons.forEach((jeton) => {
+        jetonsPushSynchronisesRef.current.add(jeton);
+      });
+
       setPushActif(true);
     } catch (error) {
       console.error("Activation Push :", error);
@@ -123,6 +195,9 @@ export default function MesTicketsSupabase() {
   }
 
   const actualiserTickets = useCallback(async () => {
+    // Synchroniser les familles sans demander de nouvelle autorisation iOS.
+    void synchroniserNotificationsPush();
+
     const jetons = recupererJetons();
 
     if (jetons.length === 0) {
@@ -226,7 +301,7 @@ export default function MesTicketsSupabase() {
     } finally {
       setChargement(false);
     }
-  }, []);
+  }, [synchroniserNotificationsPush]);
 
   useEffect(() => {
     // Charger les tickets au démarrage
