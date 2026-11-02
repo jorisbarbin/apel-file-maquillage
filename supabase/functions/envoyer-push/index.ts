@@ -16,6 +16,17 @@ const modePushValide =
 const abonnementTestAutorise = Deno.env.get(
   "PUSH_TEST_ENDPOINT"
 );
+// Test automatique contrôlé en production.
+// Les deux identifiants sont obligatoires pour ce mode.
+const testAutomatiqueActif =
+  Deno.env.get("PUSH_AUTO_TEST_ENABLED") === "true";
+
+const ticketTestAutorise =
+  Deno.env.get("PUSH_AUTO_TEST_TICKET_ID");
+
+const empreinteIphoneAutorisee =
+  Deno.env.get("PUSH_TEST_IPHONE_SHA256");
+
 const clePubliqueVapid = Deno.env.get("VAPID_PUBLIC_KEY");
 const clePriveeVapid = Deno.env.get("VAPID_PRIVATE_KEY");
 const sujetVapid = Deno.env.get("VAPID_SUBJECT");
@@ -51,12 +62,34 @@ Deno.serve(async (req) => {
 
   if (
     modePush === "production" &&
-    !diffusionMultifamillesAutorisee
+    !diffusionMultifamillesAutorisee &&
+    !testAutomatiqueActif
   ) {
     return reponse(
       "Diffusion multi-familles non autorisée.",
       503
     );
+  }
+
+  // Interdire la combinaison test ciblé + diffusion générale.
+  if (testAutomatiqueActif && diffusionMultifamillesAutorisee) {
+    return reponse("Modes de diffusion incompatibles.", 503);
+  }
+
+  // Refuser un test automatique sans ciblage complet.
+  if (testAutomatiqueActif) {
+    const uuidValide =
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+    if (
+      modePush !== "production" ||
+      !ticketTestAutorise ||
+      !uuidValide.test(ticketTestAutorise) ||
+      !empreinteIphoneAutorisee ||
+      !/^[a-f0-9]{64}$/.test(empreinteIphoneAutorisee)
+    ) {
+      return reponse("Configuration du test automatique invalide.", 503);
+    }
   }
 
   const secretAttendu = Deno.env.get("PUSH_WORKER_SECRET");
@@ -180,15 +213,85 @@ Deno.serve(async (req) => {
       );
     }
 
+    // En test automatique, identifier un seul endpoint Apple autorisé.
+    let endpointTestAutomatique: string | null = null;
+
+    if (testAutomatiqueActif) {
+      const { data: abonnements, error: erreurAbonnements } =
+        await supabase
+          .from("abonnements_push")
+          .select("endpoint, cle_p256dh, cle_auth")
+          .eq("actif", true)
+          .limit(1001);
+
+      if (erreurAbonnements || !abonnements ||
+          abonnements.length >= 1001) {
+        return reponse("Abonnements de test indisponibles.", 503);
+      }
+
+      const correspondances = [];
+
+      for (const abonnement of abonnements) {
+        const octets = new TextEncoder().encode(abonnement.endpoint);
+        const hash = await crypto.subtle.digest("SHA-256", octets);
+        const empreinte = Array.from(new Uint8Array(hash))
+          .map((x) => x.toString(16).padStart(2, "0"))
+          .join("");
+
+        if (empreinte === empreinteIphoneAutorisee) {
+          correspondances.push(abonnement);
+        }
+      }
+
+      if (correspondances.length === 0) {
+        return reponse("iPhone de test introuvable.", 409);
+      }
+
+      const reference = correspondances[0];
+
+      if (!correspondances.every(
+        (a) => a.endpoint === reference.endpoint &&
+          a.cle_p256dh === reference.cle_p256dh &&
+          a.cle_auth === reference.cle_auth
+      )) {
+        return reponse("Abonnements de test incohérents.", 409);
+      }
+
+      const destination = new URL(reference.endpoint);
+
+      if (destination.protocol !== "https:" ||
+          destination.hostname !== "web.push.apple.com" ||
+          destination.port !== "") {
+        return reponse("Destination Apple non autorisée.", 503);
+      }
+
+      endpointTestAutomatique = reference.endpoint;
+    }
+
     // En test : un seul envoi vers l'abonnement autorisé.
     // En production : un lot limité à 20 notifications.
-    const limiteEnvois = modePush === "test" ? 1 : 20;
+    // Ne jamais réserver d'envoi de test sans les deux filtres.
+    if (
+      testAutomatiqueActif &&
+      (!endpointTestAutomatique || !ticketTestAutorise)
+    ) {
+      return reponse("Ciblage automatique incomplet.", 503);
+    }
+
+    const limiteEnvois =
+      testAutomatiqueActif || modePush === "test" ? 1 : 20;
 
     const { data: envois, error: erreurReservation } =
       await supabase.rpc("reserver_envois_push", {
         p_limite: limiteEnvois,
-        p_endpoint_test:
-          modePush === "test" ? abonnementTestAutorise : null,
+        p_endpoint_test: testAutomatiqueActif
+          ? endpointTestAutomatique
+          : modePush === "test"
+            ? abonnementTestAutorise
+            : null,
+        p_ticket_test: testAutomatiqueActif
+          ? ticketTestAutorise
+          : null,
       });
 
     if (erreurReservation) {
@@ -237,6 +340,19 @@ Deno.serve(async (req) => {
 
         continue;
       }
+      // Dernier verrou : interdire tout autre destinataire
+      // pendant le test automatique sur iPhone.
+      if (
+        testAutomatiqueActif &&
+        (!endpointTestAutomatique ||
+          envoi.endpoint !== endpointTestAutomatique)
+      ) {
+        console.error(
+          "Envoi bloqué : destinataire différent de l'iPhone autorisé."
+        );
+        return reponse("Destinataire de test non autorisé.", 503);
+      }
+
       const abonnement = {
         endpoint: envoi.endpoint,
         keys: {
