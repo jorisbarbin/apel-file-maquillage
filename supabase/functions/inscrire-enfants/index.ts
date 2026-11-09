@@ -160,6 +160,15 @@ Deno.serve(async (req)=>{
         erreur: "Trop de tentatives d'inscription. Veuillez réessayer dans quelques minutes."
       }, 429);
     }
+    // Ne jamais permettre l'ancien parcours gratuit lorsque le paiement est activé.
+    const { data: standPayant, error: erreurPrix } = await supabase.from("stands")
+      .select("prix_enfant_centimes").eq("nom", "Maquillage - Marché de Noël").single();
+    if (erreurPrix || !standPayant) {
+      return reponse({ erreur: "Configuration des inscriptions indisponible." }, 503);
+    }
+    if (standPayant.prix_enfant_centimes > 0) {
+      return reponse({ erreur: "Le paiement par carte bancaire est obligatoire." }, 409);
+    }
     // 7. Inscrire les enfants uniquement après validation
     const { data, error } = await supabase.rpc("inscrire_enfants_securise", {
       p_prenoms: prenoms.map((p)=>p.trim()),

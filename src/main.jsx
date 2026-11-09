@@ -56,6 +56,7 @@ function load() {
 function App() {
     const [statutStand, setStatutStand] = useState("chargement");
     const [enfantsEnAttente, setEnfantsEnAttente] = useState(0);
+    const [prixEnfantCentimes, setPrixEnfantCentimes] = useState(null);
     const [erreurStatut, setErreurStatut] = useState(false);
     const [turnstileToken, setTurnstileToken] = useState(null);
     const [inscriptionEnCours, setInscriptionEnCours] = useState(false);
@@ -115,6 +116,8 @@ function App() {
                 return;
             }
             setErreurStatut(false);
+            const { data: tarif, error: erreurTarif } = await supabase.rpc("tarif_maquillage_public");
+            if (actif) setPrixEnfantCentimes(erreurTarif ? null : Number(tarif));
             setStatutStand(data[0].statut);
             setEnfantsEnAttente(Number(data[0].enfants_en_attente));
         }
@@ -155,173 +158,89 @@ function App() {
         setPage(role);
         setNotice("");
     };
+    function memoriserTickets(tickets) {
+        if (!tickets?.length || !tickets[0]?.jeton_prive) throw new Error("Tickets incomplets.");
+        const jeton = tickets[0].jeton_prive;
+        let anciens = [];
+        try {
+            anciens = JSON.parse(localStorage.getItem("apel-jetons-familles") || "[]");
+            if (!Array.isArray(anciens)) anciens = [];
+        } catch { anciens = []; }
+        if (!anciens.includes(jeton)) anciens.push(jeton);
+        localStorage.setItem("apel-jetons-familles", JSON.stringify(anciens));
+        window.dispatchEvent(new Event("apel-tickets-changed"));
+        sessionStorage.removeItem("apel-inscription-en-attente");
+        demandeInscriptionRef.current = null;
+        setInscriptionAConfirmer(false);
+        setNames([""]);
+        setNotice("🎉 Paiement confirmé ! Vos tickets sont disponibles.");
+    }
+
+    useEffect(() => {
+        const current = new URL(window.location.href);
+        const demandeId = current.searchParams.get("paiement");
+        if (!demandeId) return;
+        let canceled = false;
+        let retries = 0;
+        const sauvegarde = JSON.parse(sessionStorage.getItem("apel-inscription-en-attente") || "null");
+        if (sauvegarde?.demande_id !== demandeId) {
+            setNotice("Pour récupérer les tickets, revenez sur le navigateur utilisé pour commander.");
+            return;
+        }
+        const verifier = async () => {
+            try {
+                const recuperationHash = await calculerEmpreinteRecuperation(sauvegarde.secret_recuperation);
+                const { data, error } = await supabase.functions.invoke("paiement-helloasso", {
+                    body: { action: "verifier", demande_id: demandeId, recuperation_hash: recuperationHash }
+                });
+                if (canceled) return;
+                if (error || !data) throw new Error("Vérification indisponible.");
+                if (data.etat === "payee") {
+                    memoriserTickets(data.tickets);
+                    current.searchParams.delete("paiement");
+                    current.searchParams.delete("retour");
+                    window.history.replaceState({}, "", current.pathname + current.search + current.hash);
+                    return;
+                }
+                setNotice("Paiement en attente de confirmation. Ne recommencez pas un paiement.");
+            } catch {
+                if (!canceled) setNotice("Vérification en cours : vos tickets seront affichés dès confirmation.");
+            }
+            if (!canceled && ++retries < 12) setTimeout(verifier, 5000);
+        };
+        verifier();
+        return () => { canceled = true; };
+    }, []);
+
     async function reserve() {
-        if (inscriptionEnCours) return;
-        const clean = names
-            .map((n) => n.trim())
-            .filter(Boolean)
-            .slice(0, 10);
-        if (!clean.length) {
-            setNotice("Veuillez saisir au moins un prénom.");
-            return;
-        }
-        if (!turnstileToken) {
-            setNotice("La vérification de sécurité est en cours. Réessayez.");
-            return;
-        }
+        if (inscriptionEnCours || inscriptionAConfirmer) return;
+        const clean = names.map((n) => n.trim()).filter(Boolean).slice(0, 10);
+        if (!clean.length) return setNotice("Saisissez au moins un prénom.");
+        if (!turnstileToken) return setNotice("Vérification de sécurité en cours.");
         setInscriptionEnCours(true);
         setNotice("");
-        // Réutiliser le même identifiant si la demande est répétée.
-        if (!demandeInscriptionRef.current) {
-            demandeInscriptionRef.current = crypto.randomUUID();
-        }
-
-        const demandeId = demandeInscriptionRef.current;
-
-        // Vérifier qu'une nouvelle tentative concerne
-        // exactement les mêmes enfants.
-        const sauvegardeExistante = sessionStorage.getItem(
-            "apel-inscription-en-attente"
-        );
-
-        if (sauvegardeExistante) {
-            let demandePrecedente;
-
-            try {
-                demandePrecedente = JSON.parse(sauvegardeExistante);
-            } catch {
-                setNotice(
-                    "⚠️ Impossible de relire l'inscription précédente."
-                );
-                setInscriptionEnCours(false);
-                return;
-            }
-
-            if (
-                demandePrecedente.demande_id !== demandeId ||
-                JSON.stringify(demandePrecedente.prenoms) !== JSON.stringify(clean)
-            ) {
-                setNotice(
-                    "⚠️ Une inscription précédente est en attente de confirmation. " +
-                    "Conservez les mêmes prénoms pour éviter une double inscription."
-                );
-                setInscriptionEnCours(false);
-                return;
-            }
-        }
-
-        // Sauvegarder la demande avant de contacter Supabase.
-        // Récupérer la demande déjà sauvegardée, si elle existe.
-        const demandeSauvegardee = JSON.parse(
-            sessionStorage.getItem("apel-inscription-en-attente") || "null"
-        );
-
-        // Réutiliser le secret précédent ou en créer un nouveau.
-        const secretRecuperation =
-            demandeSauvegardee?.secret_recuperation ||
-            genererSecretRecuperation();
-
-        // Une fois la demande préparée, ses prénoms ne doivent plus changer.
+        const demandeId = crypto.randomUUID();
+        const secretRecuperation = genererSecretRecuperation();
+        demandeInscriptionRef.current = demandeId;
+        sessionStorage.setItem("apel-inscription-en-attente", JSON.stringify({
+            demande_id: demandeId, prenoms: clean, secret_recuperation: secretRecuperation
+        }));
         setInscriptionAConfirmer(true);
-
-        // Conserver la preuve privée avant tout appel réseau.
-        sessionStorage.setItem(
-            "apel-inscription-en-attente",
-            JSON.stringify({
-                demande_id: demandeId,
-                prenoms: clean,
-                secret_recuperation: secretRecuperation,
-            })
-        );
-
         try {
-            // Seule l'empreinte sera envoyée à Supabase.
-            const recuperationHash =
-                await calculerEmpreinteRecuperation(secretRecuperation);
-
-            const { data, error } = await supabase.functions.invoke(
-                "inscrire-enfants",
-                {
-                    body: {
-                        prenoms: clean,
-                        demande_id: demandeId,
-                        recuperation_hash: recuperationHash,
-                        turnstile_token: turnstileToken,
-                    },
-                },
-            );
-            if (error || !data?.succes) {
-                let message = data?.erreur;
-
-                if (!message && error?.context) {
-                    try {
-                        const details = await error.context.json();
-                        message = details?.erreur;
-                    } catch {
-                        // La réponse n'est pas forcément au format JSON.
-                    }
-                }
-
-                throw new Error(
-                    message || "L'inscription n'a pas pu être confirmée."
-                );
-            }
-            const tickets = data.tickets || [];
-            if (!tickets.length || !tickets[0]?.jeton_prive) {
-                throw new Error("Réponse d'inscription incomplète.");
-            }
-            // Conserver le jeton privé sur cet appareil
-            const jetonPrive = tickets[0].jeton_prive;
-            // Récupérer les jetons des inscriptions précédentes
-            let jetonsEnregistres = [];
-            try {
-                jetonsEnregistres = JSON.parse(
-                    localStorage.getItem("apel-jetons-familles") || "[]"
-                );
-                if (!Array.isArray(jetonsEnregistres)) {
-                    jetonsEnregistres = [];
-                }
-            } catch {
-                jetonsEnregistres = [];
-            }
-            // Ajouter le nouveau jeton sans supprimer les précédents
-            if (!jetonsEnregistres.includes(jetonPrive)) {
-                jetonsEnregistres.push(jetonPrive);
-            }
-            // Enregistrer tous les jetons sur cet appareil
-            localStorage.setItem(
-                "apel-jetons-familles",
-                JSON.stringify(jetonsEnregistres)
-            );
-            // Prévenir l'interface que les tickets ont changé
-            window.dispatchEvent(new Event("apel-tickets-changed"));
-            // L'inscription est confirmée : la prochaine demande
-            // pourra recevoir un nouvel identifiant.
-            demandeInscriptionRef.current = null;
-            sessionStorage.removeItem("apel-inscription-en-attente");
-
-            setInscriptionAConfirmer(false);
-            setNames([""]);
-            setNotice(
-                `🎉 ${tickets.length} inscription${tickets.length > 1 ? "s" : ""} confirmée${tickets.length > 1 ? "s" : ""} !`,
-            );
-            console.log(
-                "Inscription confirmée :",
-                tickets.map((t) => ({
-                    numero: t.numero,
-                    prenom: t.prenom,
-                })),
-            );
+            const recuperationHash = await calculerEmpreinteRecuperation(secretRecuperation);
+            const { data, error } = await supabase.functions.invoke("paiement-helloasso", {
+                body: { action: "creer", prenoms: clean, demande_id: demandeId,
+                    recuperation_hash: recuperationHash, turnstile_token: turnstileToken }
+            });
+            if (error || !data?.redirect_url) throw new Error(data?.erreur || "Paiement non initialisé.");
+            // La redirection se produit seulement après sauvegarde de la demande.
+            window.location.assign(data.redirect_url);
         } catch (error) {
-            console.error("Erreur inscription :", error);
-            setNotice(
-                error.message ||
-                "Impossible de confirmer l'inscription. Veuillez réessayer.",
-            );
+            setNotice(error.message || "Paiement indisponible.");
+            // Ne pas créer une deuxième commande sans réconcilier la première.
         } finally {
             setInscriptionEnCours(false);
             setTurnstileToken(null);
-            // Un jeton Turnstile ne peut servir qu'une seule fois
             turnstileRef.current?.reset();
         }
     }
@@ -493,6 +412,12 @@ function App() {
                                 >
                                     <Plus size={18} /> Ajouter un autre enfant
                                 </button>
+                                {prixEnfantCentimes !== null && prixEnfantCentimes > 0 && (
+                                    <p className="notice">
+                                        Prix par enfant : {(prixEnfantCentimes / 100).toLocaleString("fr-FR", { style: "currency", currency: "EUR" })}
+                                        {" · "}Total du panier : {((prixEnfantCentimes * names.filter(n => n.trim()).length) / 100).toLocaleString("fr-FR", { style: "currency", currency: "EUR" })}
+                                    </p>
+                                )}
                                 <Turnstile
                                     ref={turnstileRef}
                                     siteKey={import.meta.env.VITE_TURNSTILE_SITE_KEY}
@@ -517,12 +442,13 @@ function App() {
                                     disabled={
                                         inscriptionEnCours ||
                                         !turnstileToken ||
+                                        !prixEnfantCentimes ||
 
                                         !names.some((n) => n.trim())
 
                                     }
                                 >
-                                    <Ticket size={19} /> Confirmer{" "}
+                                    <Ticket size={19} /> Valider et payer pour{" "}
                                     {names.filter((n) => n.trim()).length || ""} inscription
                                     {names.filter((n) => n.trim()).length > 1 ? "s" : ""}
                                 </button>
