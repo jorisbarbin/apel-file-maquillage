@@ -153,7 +153,7 @@ Deno.serve(async (req) => {
         backUrl: paymentUrl + "&retour=annule",
         errorUrl: paymentUrl + "&retour=erreur",
         returnUrl: paymentUrl + "&retour=confirmation",
-        metadata: { demande_id: body.demande_id }
+        metadata: JSON.stringify({ demande_id: body.demande_id })
       }),
       signal: AbortSignal.timeout(12000)
     });
