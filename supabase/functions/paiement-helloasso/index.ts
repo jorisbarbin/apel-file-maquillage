@@ -82,9 +82,13 @@ Deno.serve(async (req) => {
       const intent = await response.json();
       // Ne jamais se fier au code de retour du navigateur.
       const payments = intent.order?.payments;
-      const paid = intent.id === commande.checkout_intent_id
-        && intent.order?.organizationSlug === slug
-        && intent.order?.checkoutIntentId === commande.checkout_intent_id
+      let metadata: { demande_id?: string } = {};
+      try { metadata = typeof intent.metadata === "string" ? JSON.parse(intent.metadata) : intent.metadata || {}; }
+      catch { return respond({ etat: "en_attente" }); }
+      // L'ordre retourné par HelloAsso n'existe que si le paiement est autorisé.
+      // Vérifier notre identifiant de commande, l'intention et le montant réel.
+      const paid = metadata.demande_id === commande.demande_id
+        && Number(intent.order?.checkoutIntentId) === Number(commande.checkout_intent_id)
         && Array.isArray(payments)
         && payments.some((p: { state: string; amount: number; paymentMeans: string }) =>
           p.state === "Authorized" && p.amount === commande.montant_centimes && p.paymentMeans === "Card");
