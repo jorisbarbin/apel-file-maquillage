@@ -10,6 +10,7 @@ export default function EspaceResponsable() {
     const [pin, setPin] = useState("");
     const [session, setSession] = useState(null);
     const [statut, setStatut] = useState(null);
+    const [prixEnfant, setPrixEnfant] = useState("");
     const [chargement, setChargement] = useState(false);
     const [erreur, setErreur] = useState("");
     const [message, setMessage] = useState("");
@@ -197,6 +198,7 @@ export default function EspaceResponsable() {
                 if (actif) {
                     setSession(ancienneSession);
                     setStatut(stand.statut);
+                    setPrixEnfant((Number(stand.prix_enfant_centimes || 0) / 100).toFixed(2));
                 }
             } catch {
                 sessionStorage.removeItem(CLE_SESSION);
@@ -238,6 +240,7 @@ export default function EspaceResponsable() {
             );
             setSession(nouvelleSession);
             setStatut(stand.statut);
+                    setPrixEnfant((Number(stand.prix_enfant_centimes || 0) / 100).toFixed(2));
             setPin("");
         } catch (err) {
             console.error("Connexion responsable :", err);
@@ -293,6 +296,7 @@ export default function EspaceResponsable() {
                 const stand = await appelerGestion(session.session_token, "etat");
                 if (actif) {
                     setStatut(stand.statut);
+                    setPrixEnfant((Number(stand.prix_enfant_centimes || 0) / 100).toFixed(2));
                 }
             } catch (err) {
                 console.error("Actualisation responsable :", err);
@@ -501,10 +505,33 @@ export default function EspaceResponsable() {
                 nouveauStatut
             );
             setStatut(stand.statut);
+                    setPrixEnfant((Number(stand.prix_enfant_centimes || 0) / 100).toFixed(2));
             setMessage("✅ Statut du stand mis à jour.");
         } catch (err) {
             console.error("Modification du stand :", err);
             setErreur("Impossible de modifier le statut du stand.");
+        } finally {
+            setChargement(false);
+        }
+    }
+    async function enregistrerPrix() {
+        if (!session || chargement) return;
+        const centimes = Math.round(Number(prixEnfant.replace(",", ".")) * 100);
+        if (!Number.isSafeInteger(centimes) || centimes < 1 || centimes > 100000) {
+            setErreur("Saisissez un prix compris entre 0,01 € et 1 000 €.");
+            return;
+        }
+        setChargement(true);
+        setErreur("");
+        try {
+            const { data, error } = await supabase.functions.invoke("gestion-stand", {
+                body: { session_token: session.session_token, action: "changer-prix", prix_enfant_centimes: centimes }
+            });
+            if (error || !data?.succes) throw new Error(data?.erreur || "Enregistrement impossible.");
+            setPrixEnfant((data.stand.prix_enfant_centimes / 100).toFixed(2));
+            setMessage("✅ Tarif par enfant enregistré.");
+        } catch (err) {
+            setErreur(err.message || "Impossible d'enregistrer le tarif.");
         } finally {
             setChargement(false);
         }
@@ -575,6 +602,16 @@ export default function EspaceResponsable() {
             </div>
             <section className="card">
                 <h2>🎄 Inscriptions au maquillage</h2>
+                <div style={{ marginBottom: 20 }}>
+                    <label>Prix par enfant (€)
+                        <input type="text" inputMode="decimal" value={prixEnfant}
+                            onChange={(e) => setPrixEnfant(e.target.value)} placeholder="3,00" />
+                    </label>
+                    <button className="outline" disabled={chargement} onClick={enregistrerPrix}>
+                        Enregistrer le tarif
+                    </button>
+                    <p className="muted">Le tarif est appliqué à chaque enfant du panier au moment de sa validation.</p>
+                </div>
                 <p className="muted">Statut actuel du stand :</p>
                 <div
                     className={
