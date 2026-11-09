@@ -56,6 +56,7 @@ function load() {
 function App() {
     const [statutStand, setStatutStand] = useState("chargement");
     const [enfantsEnAttente, setEnfantsEnAttente] = useState(0);
+    const [prixEnfantCentimes, setPrixEnfantCentimes] = useState(null);
     const [erreurStatut, setErreurStatut] = useState(false);
     const [turnstileToken, setTurnstileToken] = useState(null);
     const [inscriptionEnCours, setInscriptionEnCours] = useState(false);
@@ -115,6 +116,8 @@ function App() {
                 return;
             }
             setErreurStatut(false);
+            const { data: tarif, error: erreurTarif } = await supabase.rpc("tarif_maquillage_public");
+            if (actif) setPrixEnfantCentimes(erreurTarif ? null : Number(tarif));
             setStatutStand(data[0].statut);
             setEnfantsEnAttente(Number(data[0].enfants_en_attente));
         }
@@ -409,6 +412,12 @@ function App() {
                                 >
                                     <Plus size={18} /> Ajouter un autre enfant
                                 </button>
+                                {prixEnfantCentimes !== null && prixEnfantCentimes > 0 && (
+                                    <p className="notice">
+                                        Prix par enfant : {(prixEnfantCentimes / 100).toLocaleString("fr-FR", { style: "currency", currency: "EUR" })}
+                                        {" · "}Total du panier : {((prixEnfantCentimes * names.filter(n => n.trim()).length) / 100).toLocaleString("fr-FR", { style: "currency", currency: "EUR" })}
+                                    </p>
+                                )}
                                 <Turnstile
                                     ref={turnstileRef}
                                     siteKey={import.meta.env.VITE_TURNSTILE_SITE_KEY}
@@ -433,6 +442,7 @@ function App() {
                                     disabled={
                                         inscriptionEnCours ||
                                         !turnstileToken ||
+                                        !prixEnfantCentimes ||
 
                                         !names.some((n) => n.trim())
 
