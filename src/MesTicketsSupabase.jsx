@@ -1,3 +1,4 @@
+import { telechargerTicketsPDF } from "./ticketsPDF";
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { supabase } from "./supabase";
 import {
@@ -405,6 +406,7 @@ export default function MesTicketsSupabase() {
             : "📲 Activer les notifications sur mon téléphone"}
       </button>
 
+      <button type="button" className="outline" onClick={() => telechargerTicketsPDF(tickets)}>📄 Télécharger mes tickets (PDF)</button>
       <div className="ticketgrid">
         {tickets.map((ticket) => (
           <div className="ticket" key={ticket.numero}>
