@@ -72,7 +72,7 @@ serve(async (req)=>{
     }
     // Consultation sans modification.
     if (body.action === "etat") {
-      const { data, error } = await supabase.from("stands").select("id, nom, statut").eq("nom", "Maquillage - Marché de Noël").single();
+      const { data, error } = await supabase.from("stands").select("id, nom, statut, prix_enfant_centimes").eq("nom", "Maquillage - Marché de Noël").single();
       if (error) {
         console.error("Consultation stand :", error.message);
         return reponse({
@@ -83,6 +83,18 @@ serve(async (req)=>{
         succes: true,
         stand: data
       });
+    }
+    if (body.action === "changer-prix") {
+      const prix = body.prix_enfant_centimes;
+      if (!Number.isSafeInteger(prix) || prix < 1 || prix > 100000) {
+        return reponse({ erreur: "Prix invalide (entre 0,01 € et 1 000 €)." }, 400);
+      }
+      const { data, error } = await supabase.from("stands")
+        .update({ prix_enfant_centimes: prix })
+        .eq("nom", "Maquillage - Marché de Noël")
+        .select("id, nom, statut, prix_enfant_centimes").single();
+      if (error) return reponse({ erreur: "Modification du prix impossible." }, 500);
+      return reponse({ succes: true, stand: data });
     }
     // Modification contrôlée.
     if (body.action === "changer-statut") {
