@@ -62,6 +62,7 @@ function App() {
     const [inscriptionEnCours, setInscriptionEnCours] = useState(false);
     const [inscriptionAConfirmer, setInscriptionAConfirmer] = useState(false);
     const [repriseEnCours, setRepriseEnCours] = useState(false);
+    const [editionPrenoms, setEditionPrenoms] = useState(false);
     const turnstileRef = useRef(null);
     // Mémoriser la demande d'inscription en cours.
     // Conserver la demande en attente, même après actualisation de la page.
@@ -179,7 +180,7 @@ function App() {
 
     // Reprendre la commande existante, sans réutiliser Turnstile ni créer de second paiement.
     async function reprendrePaiement() {
-        if (repriseEnCours || inscriptionEnCours) return;
+        if (repriseEnCours || inscriptionEnCours || editionPrenoms) return;
         const sauvegarde = JSON.parse(sessionStorage.getItem("apel-inscription-en-attente") || "null");
         if (!sauvegarde?.demande_id || !sauvegarde?.secret_recuperation) {
             setInscriptionAConfirmer(false);
@@ -253,21 +254,33 @@ function App() {
         return () => { canceled = true; };
     }, []);
 
-    // L'annulation ferme uniquement le panier local : un checkout HelloAsso déjà
-    // créé ne peut pas être révoqué par notre application.
-    function annulerDemande() {
+    async function enregistrerPrenoms() {
+        if (inscriptionEnCours || repriseEnCours) return;
         const sauvegarde = JSON.parse(sessionStorage.getItem("apel-inscription-en-attente") || "null");
-        if (!sauvegarde?.demande_id) return;
-        const anciennes = JSON.parse(localStorage.getItem("apel-commandes-abandonnees") || "[]");
-        const pending = Array.isArray(anciennes) ? anciennes : [];
-        if (!pending.some(c => c.demande_id === sauvegarde.demande_id)) {
-            pending.push(sauvegarde);
+        if (!sauvegarde?.demande_id || !sauvegarde?.secret_recuperation) return;
+        const clean = names.map((n) => n.trim());
+        if (clean.length !== sauvegarde.prenoms.length || clean.some((n) => !n || n.length > 35)) {
+            setNotice("Corrigez uniquement les prénoms, sans changer le nombre d'enfants.");
+            return;
         }
-        localStorage.setItem("apel-commandes-abandonnees", JSON.stringify(pending));
-        sessionStorage.removeItem("apel-inscription-en-attente");
-        demandeInscriptionRef.current = null;
-        setInscriptionAConfirmer(false);
-        setNotice("Panier modifiable. Le paiement HelloAsso précédent peut encore aboutir : toute nouvelle commande sera soumise à une vérification anti-doublon.");
+        setInscriptionEnCours(true);
+        try {
+            const hash = await calculerEmpreinteRecuperation(sauvegarde.secret_recuperation);
+            const { data, error } = await supabase.functions.invoke("paiement-helloasso", {
+                body: { action: "modifier-prenoms", demande_id: sauvegarde.demande_id,
+                    recuperation_hash: hash, prenoms: clean }
+            });
+            if (error || !data?.succes) throw new Error(data?.erreur || "Modification impossible. Vérifiez que le paiement n'a pas déjà été effectué.");
+            sessionStorage.setItem("apel-inscription-en-attente",
+                JSON.stringify({ ...sauvegarde, prenoms: clean }));
+            setNames(clean);
+            setEditionPrenoms(false);
+            setNotice("Prénoms enregistrés. Vous pouvez reprendre le même paiement HelloAsso.");
+        } catch (error) {
+            setNotice(error.message || "Impossible de corriger les prénoms.");
+        } finally {
+            setInscriptionEnCours(false);
+        }
     }
 
     async function verifierAnciennesCommandes() {
@@ -476,7 +489,7 @@ function App() {
                                             Enfant {i + 1}
                                             <input
                                                 value={n}
-                                                disabled={inscriptionEnCours || inscriptionAConfirmer}
+                                                disabled={inscriptionEnCours || (inscriptionAConfirmer && !editionPrenoms)}
                                                 placeholder="Son prénom"
                                                 maxLength="35"
                                                 onChange={(e) =>
@@ -535,17 +548,27 @@ function App() {
                                 />
                                 {inscriptionAConfirmer && (
                                     <div className="notice">
-                                        <p>Une commande existe déjà pour ce panier. Retrouvez son paiement ou vérifiez son état sans recréer d'inscription.</p>
-                                        <button className="outline" type="button"
-                                            disabled={repriseEnCours || inscriptionEnCours}
-                                            onClick={reprendrePaiement}>
-                                            {repriseEnCours ? "Vérification du paiement..." : "Reprendre ou vérifier mon paiement"}
-                                        </button>
-                                        <button type="button" className="link danger"
-                                            disabled={repriseEnCours || inscriptionEnCours}
-                                            onClick={annulerDemande}>
-                                            Annuler ma demande
-                                        </button>
+                                        <p>Votre panier est conservé. Vous pouvez corriger les prénoms sans créer un nouveau paiement.</p>
+                                        {editionPrenoms ? (
+                                            <button className="outline" type="button"
+                                                disabled={repriseEnCours || inscriptionEnCours}
+                                                onClick={enregistrerPrenoms}>
+                                                {inscriptionEnCours ? "Enregistrement..." : "Enregistrer les prénoms"}
+                                            </button>
+                                        ) : (
+                                            <>
+                                                <button className="outline" type="button"
+                                                    disabled={repriseEnCours || inscriptionEnCours}
+                                                    onClick={reprendrePaiement}>
+                                                    {repriseEnCours ? "Vérification du paiement..." : "Reprendre ou vérifier mon paiement"}
+                                                </button>
+                                                <button type="button" className="outline"
+                                                    disabled={repriseEnCours || inscriptionEnCours}
+                                                    onClick={() => { setEditionPrenoms(true); setNotice(""); }}>
+                                                    Modifier les prénoms
+                                                </button>
+                                            </>
+                                        )}
                                     </div>
                                 )}
                                 <button
