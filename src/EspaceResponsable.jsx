@@ -634,6 +634,21 @@ export default function EspaceResponsable() {
                     </button>
                 </div>
                 <section className="card">
+                    <h2>🎨 Tarif du maquillage</h2>
+                <div style={{ marginBottom: 20 }}>
+                    <label>Prix par enfant (€)
+                        <input type="text" inputMode="decimal" value={prixEnfant}
+                            onChange={(e) => setPrixEnfant(e.target.value)} placeholder="3,00" />
+                    </label>
+                    <button className="outline" disabled={chargement} onClick={enregistrerPrix}>
+                        Enregistrer le tarif
+                    </button>
+                    <p className="muted">Le tarif est appliqué à chaque enfant du panier au moment de sa validation.</p>
+                </div>
+                    {message && <p className="notice">{message}</p>}
+                    {erreur && <p className="error">{erreur}</p>}
+                </section>
+                <section className="card">
                     <p className="muted">
                         Rapprochez le numéro du ticket avec le numéro de commande indiqué
                         dans le reçu HelloAsso. Les données sont consultables en lecture seule.
@@ -715,24 +730,7 @@ export default function EspaceResponsable() {
                 </button>
             </div>
             <section className="card">
-                <h2>💳 Administration des paiements</h2>
-                <p className="muted">Consultez les tickets et leurs références de commande HelloAsso.</p>
-                <button className="outline" type="button" onClick={ouvrirPaiements}>
-                    Voir le suivi des paiements →
-                </button>
-            </section>
-            <section className="card">
                 <h2>🎄 Inscriptions au maquillage</h2>
-                <div style={{ marginBottom: 20 }}>
-                    <label>Prix par enfant (€)
-                        <input type="text" inputMode="decimal" value={prixEnfant}
-                            onChange={(e) => setPrixEnfant(e.target.value)} placeholder="3,00" />
-                    </label>
-                    <button className="outline" disabled={chargement} onClick={enregistrerPrix}>
-                        Enregistrer le tarif
-                    </button>
-                    <p className="muted">Le tarif est appliqué à chaque enfant du panier au moment de sa validation.</p>
-                </div>
                 <p className="muted">Statut actuel du stand :</p>
                 <div
                     className={
@@ -1019,6 +1017,13 @@ export default function EspaceResponsable() {
                     {chargement ? "Enregistrement..." : "➕ Ajouter un bénévole"}
                 </button>
             </div>
+            <section className="card">
+                <h2>💳 Administration des paiements</h2>
+                <p className="muted">Consultez les tickets et leurs références de commande HelloAsso.</p>
+                <button className="outline" type="button" onClick={ouvrirPaiements}>
+                    Voir le suivi des paiements →
+                </button>
+            </section>
             <p className="muted center">
                 Les modifications sont enregistrées dans Supabase et
                 répercutées automatiquement sur l'espace parents.
