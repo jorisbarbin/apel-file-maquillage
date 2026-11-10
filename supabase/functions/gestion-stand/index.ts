@@ -70,6 +70,36 @@ serve(async (req)=>{
         erreur: "Accès responsable refusé."
       }, 403);
     }
+    // Administration : liste en lecture seule, strictement réservée à la session responsable.
+    if (body.action === "liste-paiements") {
+      const page = Number(body.page ?? 0);
+      if (!Number.isSafeInteger(page) || page < 0 || page > 100000) {
+        return reponse({ erreur: "Page invalide." }, 400);
+      }
+      const { data: stand, error: erreurStand } = await supabase.from("stands")
+        .select("id").eq("nom", "Maquillage - Marché de Noël").single();
+      if (erreurStand || !stand) {
+        return reponse({ erreur: "Stand introuvable." }, 500);
+      }
+      const taillePage = 50;
+      const debut = page * taillePage;
+      const { data: tickets, count, error } = await supabase.from("tickets")
+        .select("numero, prenom, helloasso_order_id", { count: "exact" })
+        .eq("stand_id", stand.id)
+        .order("numero", { ascending: false })
+        .range(debut, debut + taillePage - 1);
+      if (error) {
+        console.error("Suivi paiements :", error.message);
+        return reponse({ erreur: "Consultation des paiements impossible." }, 500);
+      }
+      return reponse({
+        succes: true,
+        tickets: tickets || [],
+        total: count || 0,
+        page,
+        taille_page: taillePage
+      });
+    }
     // Consultation sans modification.
     if (body.action === "etat") {
       const { data, error } = await supabase.from("stands").select("id, nom, statut, prix_enfant_centimes").eq("nom", "Maquillage - Marché de Noël").single();
