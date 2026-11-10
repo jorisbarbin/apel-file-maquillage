@@ -1,5 +1,5 @@
-import webpush from "web-push";
-import { createClient } from "@supabase/supabase-js";
+import webpush from "npm:web-push@3.6.7";
+import { createClient } from "npm:@supabase/supabase-js@2";
 // Aucun envoi réseau tant que cette variable n'est pas explicitement activée.
 const envoiPushActif = Deno.env.get("PUSH_SEND_ENABLED") === "true";
 // Mode test par défaut : aucune diffusion multi-familles implicite.
