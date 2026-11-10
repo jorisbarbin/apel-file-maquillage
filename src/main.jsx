@@ -267,8 +267,7 @@ function App() {
         sessionStorage.removeItem("apel-inscription-en-attente");
         demandeInscriptionRef.current = null;
         setInscriptionAConfirmer(false);
-        setNames([""]);
-        setNotice("Demande retirée du formulaire. Le paiement HelloAsso précédent peut encore aboutir : un autre paiement ne sera proposé qu'après vérification de son abandon.");
+        setNotice("Panier modifiable. Le paiement HelloAsso précédent peut encore aboutir : toute nouvelle commande sera soumise à une vérification anti-doublon.");
     }
 
     async function verifierAnciennesCommandes() {
@@ -278,6 +277,7 @@ function App() {
             if (!Array.isArray(anciennes)) anciennes = [];
         } catch { anciennes = []; }
         const restantes = [];
+        let paiementRetrouve = false;
         for (const commande of anciennes) {
             try {
                 const hash = await calculerEmpreinteRecuperation(commande.secret_recuperation);
@@ -290,6 +290,7 @@ function App() {
                 }
                 if (data.etat === "payee") {
                     memoriserTickets(data.tickets);
+                    paiementRetrouve = true;
                     setNotice("Un paiement précédent a été confirmé. Ses tickets viennent d'être récupérés : vérifiez-les avant tout nouvel achat.");
                     continue;
                 }
@@ -299,7 +300,7 @@ function App() {
             }
         }
         localStorage.setItem("apel-commandes-abandonnees", JSON.stringify(restantes));
-        return restantes.length === 0;
+        return { autorise: restantes.length === 0 && !paiementRetrouve, paiementRetrouve };
     }
 
     async function reserve() {
@@ -308,9 +309,10 @@ function App() {
         if (!clean.length) return setNotice("Saisissez au moins un prénom.");
         if (!turnstileToken) return setNotice("Vérification de sécurité en cours.");
         setInscriptionEnCours(true);
-        if (!(await verifierAnciennesCommandes())) {
+        const verificationAnciens = await verifierAnciennesCommandes();
+        if (!verificationAnciens.autorise) {
             setInscriptionEnCours(false);
-            setNotice("Un ancien paiement est encore possible. Pour éviter un double débit, une nouvelle commande sera disponible après vérification de son abandon (jusqu'à 45 minutes).");
+            if (!verificationAnciens.paiementRetrouve) setNotice("Un paiement précédent peut encore aboutir. Pour éviter un double débit, réessayez après vérification de son abandon (jusqu'à 45 minutes). Votre panier reste modifiable.");
             return;
         }
         setNotice("");
