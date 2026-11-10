@@ -59,6 +59,50 @@ Deno.serve(async (req) => {
       .select("*").eq("demande_id", body.demande_id).maybeSingle();
     if (erreurCommande) throw new Error("Lecture commande impossible");
 
+    if (body.action === "modifier-prenoms") {
+      if (!commande || commande.recuperation_hash !== body.recuperation_hash) {
+        return respond({ erreur: "Commande introuvable." }, 404);
+      }
+      const prenoms = body.prenoms;
+      if (!Array.isArray(prenoms) ||
+          prenoms.length !== commande.prenoms.length ||
+          !prenoms.every((p: unknown) => typeof p === "string" &&
+            p.trim().length >= 1 && p.trim().length <= 35)) {
+        return respond({ erreur: "Seuls les prénoms peuvent être modifiés. Le nombre d'enfants reste identique." }, 400);
+      }
+      if (commande.statut === "payee") {
+        return respond({ erreur: "Le paiement est déjà confirmé : les tickets ne sont plus modifiables." }, 409);
+      }
+      // Recontrôler HelloAsso, et non uniquement l'état local de Supabase :
+      // un paiement peut déjà avoir abouti sans que le parent soit revenu.
+      if (commande.checkout_intent_id) {
+        const accessToken = await token();
+        const verification = await fetch(base + "/v5/organizations/" + encodeURIComponent(slug) +
+          "/checkout-intents/" + commande.checkout_intent_id, {
+          headers: { Authorization: "Bearer " + accessToken, Accept: "application/json" },
+          signal: AbortSignal.timeout(10000)
+        });
+        if (!verification.ok) {
+          return respond({ erreur: "Impossible de vérifier le paiement précédent. Réessayez." }, 503);
+        }
+        const intent = await verification.json();
+        const payments = intent.order?.payments;
+        if (Array.isArray(payments) && payments.some((p: { state: string }) => p.state === "Authorized")) {
+          return respond({ erreur: "Le paiement a été accepté. Récupérez vos tickets avant toute modification." }, 409);
+        }
+      }
+      const { error } = await supabase.rpc("modifier_prenoms_commande_maquillage", {
+        p_demande_id: commande.demande_id,
+        p_recuperation_hash: body.recuperation_hash,
+        p_prenoms: prenoms.map((p: string) => p.trim())
+      });
+      if (error) {
+        console.error("Correction prénoms :", error.message);
+        return respond({ erreur: "La commande ne peut plus être modifiée." }, 409);
+      }
+      return respond({ succes: true, prenoms: prenoms.map((p: string) => p.trim()) });
+    }
+
     if (body.action === "verifier" || body.action === "reprendre") {
       if (!commande || commande.recuperation_hash !== body.recuperation_hash) {
         return respond({ erreur: "Commande introuvable." }, 404);
