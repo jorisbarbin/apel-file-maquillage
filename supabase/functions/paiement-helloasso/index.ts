@@ -59,11 +59,14 @@ Deno.serve(async (req) => {
       .select("*").eq("demande_id", body.demande_id).maybeSingle();
     if (erreurCommande) throw new Error("Lecture commande impossible");
 
-    if (body.action === "verifier") {
+    if (body.action === "verifier" || body.action === "reprendre") {
       if (!commande || commande.recuperation_hash !== body.recuperation_hash) {
         return respond({ erreur: "Commande introuvable." }, 404);
       }
-      if (!commande.checkout_intent_id) return respond({ etat: "preparation" });
+      if (!commande.checkout_intent_id) {
+        const age = Date.now() - new Date(commande.created_at).getTime();
+        return respond({ etat: age >= 45 * 60_000 ? "abandonnee" : "preparation" });
+      }
       if (commande.statut === "payee") {
         const { data: tickets, error } = await supabase.rpc("finaliser_commande_maquillage", {
           p_demande_id: commande.demande_id, p_checkout_intent_id: commande.checkout_intent_id,
@@ -92,7 +95,19 @@ Deno.serve(async (req) => {
         && Array.isArray(payments)
         && payments.some((p: { state: string; amount: number; paymentMeans: string }) =>
           p.state === "Authorized" && p.amount === commande.montant_centimes && p.paymentMeans === "Card");
-      if (!paid) return respond({ etat: "en_attente" });
+      if (!paid) {
+        const age = Date.now() - new Date(commande.created_at).getTime();
+        if (age >= 45 * 60_000) return respond({ etat: "abandonnee" });
+        // Une intention ne doit jamais être payée une seconde fois.
+        // L'URL HelloAsso expire environ 15 minutes après la création.
+        if (body.action === "reprendre" && age < 15 * 60_000 &&
+            typeof intent.redirectUrl === "string" &&
+            /^https:\\/\\/([a-z0-9-]+\\.)?helloasso-sandbox\\.com\\//i.test(intent.redirectUrl) === (Deno.env.get("HELLOASSO_SANDBOX") === "true") &&
+            /^https:\\/\\//.test(intent.redirectUrl)) {
+          return respond({ etat: "en_attente", redirect_url: intent.redirectUrl });
+        }
+        return respond({ etat: age >= 15 * 60_000 ? "lien_expire" : "en_attente" });
+      }
       const { data: tickets, error } = await supabase.rpc("finaliser_commande_maquillage", {
         p_demande_id: commande.demande_id, p_checkout_intent_id: commande.checkout_intent_id,
         p_montant_centimes: commande.montant_centimes
