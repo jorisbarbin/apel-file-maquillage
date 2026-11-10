@@ -409,7 +409,9 @@ Deno.serve(async (req) => {
         body:
           envoi.type_notification === "appele"
             ? `C'est au tour de ${envoi.prenom} ! Présentez-vous au stand maquillage.`
-            : `Le tour de ${envoi.prenom} approche ! Il reste 5 enfants ou moins devant vous.`,
+            : /^approche_[2-5]$/.test(envoi.type_notification)
+              ? `Le tour de ${envoi.prenom} approche : ${envoi.type_notification.slice(-1)} enfants devant vous. Rapprochez-vous du stand !`
+              : "Consultez votre place dans la file d'attente.",
         tag: `apel-${envoi.type_notification}-${envoi.envoi_id}`,
         url: "/",
       });
