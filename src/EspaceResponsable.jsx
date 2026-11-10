@@ -994,7 +994,11 @@ export default function EspaceResponsable() {
                     )
                 )}
             </section>
-            <div style={{ marginTop: "20px", marginBottom: "24px" }}>
+            <section className="card">
+                <h2>➕ Ajouter un bénévole</h2>
+                <p className="muted">
+                    Ajoutez un bénévole à l'équipe du stand en indiquant son prénom.
+                </p>
                 <label>
                     Prénom du nouveau bénévole
                     <input
@@ -1006,6 +1010,7 @@ export default function EspaceResponsable() {
                     />
                 </label>
                 <button
+                    type="button"
                     className="primary"
                     style={{ marginTop: "12px" }}
                     onClick={ajouterBenevole}
@@ -1014,9 +1019,9 @@ export default function EspaceResponsable() {
                         nouveauPrenom.trim().length < 2
                     }
                 >
-                    {chargement ? "Enregistrement..." : "➕ Ajouter un bénévole"}
+                    {chargement ? "Enregistrement..." : "➕ Ajouter le bénévole"}
                 </button>
-            </div>
+            </section>
             <section className="card">
                 <h2>💳 Administration des paiements</h2>
                 <p className="muted">Consultez les tickets et leurs références de commande HelloAsso.</p>
