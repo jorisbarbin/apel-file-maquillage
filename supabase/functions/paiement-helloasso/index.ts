@@ -111,14 +111,6 @@ Deno.serve(async (req) => {
         const age = Date.now() - new Date(commande.created_at).getTime();
         return respond({ etat: age >= 45 * 60_000 ? "abandonnee" : "preparation" });
       }
-      if (commande.statut === "payee") {
-        const { data: tickets, error } = await supabase.rpc("finaliser_commande_maquillage", {
-          p_demande_id: commande.demande_id, p_checkout_intent_id: commande.checkout_intent_id,
-          p_montant_centimes: commande.montant_centimes
-        });
-        if (error) throw error;
-        return respond({ etat: "payee", tickets });
-      }
       const accessToken = await token();
       const response = await fetch(base + "/v5/organizations/" + encodeURIComponent(slug) +
         "/checkout-intents/" + commande.checkout_intent_id, {
@@ -160,6 +152,18 @@ Deno.serve(async (req) => {
         }
         return respond({ etat: age >= 15 * 60_000 ? "lien_expire" : "en_attente" });
       }
+      // La référence visible sur le reçu HelloAsso est order.id, et non checkout_intent_id.
+      // Elle est uniquement enregistrée après vérification effective du paiement.
+      const orderId = Number(intent.order?.id);
+      if (!Number.isSafeInteger(orderId) || orderId <= 0) {
+        throw new Error("Numéro de commande HelloAsso absent du paiement confirmé");
+      }
+      const { error: erreurReference } = await supabase.rpc("enregistrer_reference_commande_helloasso", {
+        p_demande_id: commande.demande_id,
+        p_checkout_intent_id: commande.checkout_intent_id,
+        p_order_id: orderId
+      });
+      if (erreurReference) throw new Error("Association du reçu HelloAsso impossible");
       const { data: tickets, error } = await supabase.rpc("finaliser_commande_maquillage", {
         p_demande_id: commande.demande_id, p_checkout_intent_id: commande.checkout_intent_id,
         p_montant_centimes: commande.montant_centimes
