@@ -530,7 +530,7 @@ function App() {
                                         {" · "}Total du panier : {((prixEnfantCentimes * names.filter(n => n.trim()).length) / 100).toLocaleString("fr-FR", { style: "currency", currency: "EUR" })}
                                     </p>
                                 )}
-                                {!inscriptionAConfirmer && (
+                                {!inscriptionAConfirmer && names.some((nom) => nom.trim()) && (
                                     <>
                                         <Turnstile
                                             key={versionTurnstile}
