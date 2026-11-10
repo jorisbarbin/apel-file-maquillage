@@ -100,11 +100,19 @@ Deno.serve(async (req) => {
         if (age >= 45 * 60_000) return respond({ etat: "abandonnee" });
         // Une intention ne doit jamais être payée une seconde fois.
         // L'URL HelloAsso expire environ 15 minutes après la création.
-        if (body.action === "reprendre" && age < 15 * 60_000 &&
-            typeof intent.redirectUrl === "string" &&
-            /^https:\\/\\/([a-z0-9-]+\\.)?helloasso-sandbox\\.com\\//i.test(intent.redirectUrl) === (Deno.env.get("HELLOASSO_SANDBOX") === "true") &&
-            /^https:\\/\\//.test(intent.redirectUrl)) {
-          return respond({ etat: "en_attente", redirect_url: intent.redirectUrl });
+        if (body.action === "reprendre" && age < 15 * 60_000) {
+          const urlCandidate = commande.checkout_redirect_url || intent.redirectUrl;
+          if (typeof urlCandidate === "string") {
+            try {
+              const parsed = new URL(urlCandidate);
+              const sandbox = Deno.env.get("HELLOASSO_SANDBOX") === "true";
+              const expectedHostname = sandbox ? "www.helloasso-sandbox.com" : "www.helloasso.com";
+              if (parsed.protocol === "https:" &&
+                  [expectedHostname, expectedHostname.replace("www.", "")].includes(parsed.hostname)) {
+                return respond({ etat: "en_attente", redirect_url: urlCandidate });
+              }
+            } catch { /* Adresse non utilisable. */ }
+          }
         }
         return respond({ etat: age >= 15 * 60_000 ? "lien_expire" : "en_attente" });
       }
@@ -182,7 +190,7 @@ Deno.serve(async (req) => {
       throw new Error("Réponse HelloAsso invalide");
     }
     const { error: updateError } = await supabase.from("commandes_maquillage")
-      .update({ checkout_intent_id: checkout.id, statut: "en_attente", updated_at: new Date().toISOString() })
+      .update({ checkout_intent_id: checkout.id, checkout_redirect_url: checkout.redirectUrl, statut: "en_attente", updated_at: new Date().toISOString() })
       .eq("demande_id", body.demande_id).eq("statut", "preparation");
     if (updateError) throw new Error("Sauvegarde du paiement impossible");
     return respond({ etat: "en_attente", montant_centimes: amount, redirect_url: checkout.redirectUrl });
