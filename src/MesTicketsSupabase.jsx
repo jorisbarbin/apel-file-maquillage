@@ -261,11 +261,19 @@ export default function MesTicketsSupabase() {
 
           if (!ancien) continue;
 
+          const enfantsDevant = Number(ticket.enfants_devant);
+          const enfantsDevantAvant = Number(ancien.enfants_devant);
+          // Un rappel sonore lorsque la file atteint 5, 4, 3 ou 2 enfants.
+          // Si plusieurs places avancent entre deux relevés, une seule alerte
+          // signale la nouvelle position, sans rejouer les anciens seuils.
           const approche =
             ancien.statut === "attente" &&
             ticket.statut === "attente" &&
-            Number(ancien.enfants_devant) > 5 &&
-            Number(ticket.enfants_devant) <= 5;
+            Number.isFinite(enfantsDevant) &&
+            Number.isFinite(enfantsDevantAvant) &&
+            enfantsDevant >= 2 &&
+            enfantsDevant <= 5 &&
+            enfantsDevantAvant > enfantsDevant;
 
           const appele =
             ancien.statut !== "appele" &&
@@ -377,9 +385,9 @@ export default function MesTicketsSupabase() {
         <h3>🔔 Alertes de passage</h3>
 
         <p className="muted">
-          Recevez une alerte sonore lorsque votre tour approche.
-          Cette fonction nécessite de garder la page ouverte
-          et active.
+          Recevez un rappel sonore à 5, 4, 3 puis 2 enfants devant vous,
+          et lorsque votre enfant est appelé. Gardez la page ouverte
+          et active pour entendre les alertes.
         </p>
 
         <button
