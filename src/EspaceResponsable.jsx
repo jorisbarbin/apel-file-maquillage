@@ -11,6 +11,12 @@ export default function EspaceResponsable() {
     const [session, setSession] = useState(null);
     const [statut, setStatut] = useState(null);
     const [prixEnfant, setPrixEnfant] = useState("");
+    const [pagePaiementsOuverte, setPagePaiementsOuverte] = useState(false);
+    const [pagePaiements, setPagePaiements] = useState(0);
+    const [ticketsPaiements, setTicketsPaiements] = useState([]);
+    const [totalTicketsPaiements, setTotalTicketsPaiements] = useState(0);
+    const [chargementPaiements, setChargementPaiements] = useState(false);
+    const [erreurPaiements, setErreurPaiements] = useState("");
     const [chargement, setChargement] = useState(false);
     const [erreur, setErreur] = useState("");
     const [message, setMessage] = useState("");
@@ -536,7 +542,34 @@ export default function EspaceResponsable() {
             setChargement(false);
         }
     }
+    async function consulterPaiements(token, pageDemandee = 0) {
+        if (!token) return;
+        setChargementPaiements(true);
+        setErreurPaiements("");
+        try {
+            const { data, error } = await supabase.functions.invoke("gestion-stand", {
+                body: { session_token: token, action: "liste-paiements", page: pageDemandee },
+            });
+            if (error || !data?.succes) {
+                throw new Error(data?.erreur || "Impossible de charger le suivi des paiements.");
+            }
+            setTicketsPaiements(data.tickets || []);
+            setTotalTicketsPaiements(Number(data.total) || 0);
+            setPagePaiements(pageDemandee);
+        } catch (err) {
+            setErreurPaiements(err.message || "Consultation indisponible.");
+        } finally {
+            setChargementPaiements(false);
+        }
+    }
+    function ouvrirPaiements() {
+        setPagePaiementsOuverte(true);
+        void consulterPaiements(session.session_token, 0);
+    }
     function deconnecter() {
+        setPagePaiementsOuverte(false);
+        setTicketsPaiements([]);
+        setTotalTicketsPaiements(0);
         sessionStorage.removeItem(CLE_SESSION);
         setSession(null);
 
@@ -585,6 +618,87 @@ export default function EspaceResponsable() {
             </section>
         );
     }
+    // Sous-page administrative accessible uniquement après authentification Responsable.
+    if (pagePaiementsOuverte) {
+        const dernierePage = Math.max(0, Math.ceil(totalTicketsPaiements / 50) - 1);
+        return (
+            <>
+                <div className="sectionhead">
+                    <div>
+                        <div className="eyebrow">ESPACE RESPONSABLE</div>
+                        <h1>💳 Suivi des paiements</h1>
+                    </div>
+                    <button type="button" className="outline small"
+                        onClick={() => setPagePaiementsOuverte(false)}>
+                        ← Retour
+                    </button>
+                </div>
+                <section className="card">
+                    <p className="muted">
+                        Rapprochez le numéro du ticket avec le numéro de commande indiqué
+                        dans le reçu HelloAsso. Les données sont consultables en lecture seule.
+                    </p>
+                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "12px", flexWrap: "wrap", marginBottom: "16px" }}>
+                        <strong>{totalTicketsPaiements} ticket{totalTicketsPaiements > 1 ? "s" : ""}</strong>
+                        <button type="button" className="outline small"
+                            disabled={chargementPaiements}
+                            onClick={() => consulterPaiements(session.session_token, pagePaiements)}>
+                            ↻ Actualiser
+                        </button>
+                    </div>
+                    {erreurPaiements && <p className="error">{erreurPaiements}</p>}
+                    {chargementPaiements && <p className="muted">Chargement des tickets…</p>}
+                    {!chargementPaiements && !erreurPaiements && ticketsPaiements.length === 0 && (
+                        <div className="empty">Aucun ticket enregistré.</div>
+                    )}
+                    {ticketsPaiements.length > 0 && (
+                        <div style={{ overflowX: "auto" }}>
+                            <table style={{ width: "100%", borderCollapse: "collapse", textAlign: "left" }}>
+                                <thead>
+                                    <tr style={{ borderBottom: "2px solid #e8dcc7" }}>
+                                        <th scope="col" style={{ padding: "12px 8px" }}>N° ticket</th>
+                                        <th scope="col" style={{ padding: "12px 8px" }}>Prénom de l'enfant</th>
+                                        <th scope="col" style={{ padding: "12px 8px" }}>Commande HelloAsso</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {ticketsPaiements.map((ticket) => (
+                                        <tr key={ticket.numero} style={{ borderBottom: "1px solid #eee5d7" }}>
+                                            <td style={{ padding: "12px 8px", whiteSpace: "nowrap", fontWeight: 700 }}>
+                                                #{String(ticket.numero).padStart(3, "0")}
+                                            </td>
+                                            <td style={{ padding: "12px 8px" }}>{ticket.prenom}</td>
+                                            <td style={{ padding: "12px 8px", whiteSpace: "nowrap" }}>
+                                                {ticket.helloasso_order_id == null ? "—" : String(ticket.helloasso_order_id)}
+                                            </td>
+                                        </tr>
+                                    ))}
+                                </tbody>
+                            </table>
+                        </div>
+                    )}
+                    {totalTicketsPaiements > 50 && (
+                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: "12px", marginTop: "20px" }}>
+                            <button type="button" className="outline small"
+                                disabled={chargementPaiements || pagePaiements === 0}
+                                onClick={() => consulterPaiements(session.session_token, pagePaiements - 1)}>
+                                ← Précédent
+                            </button>
+                            <span className="muted">Page {pagePaiements + 1} / {dernierePage + 1}</span>
+                            <button type="button" className="outline small"
+                                disabled={chargementPaiements || pagePaiements >= dernierePage}
+                                onClick={() => consulterPaiements(session.session_token, pagePaiements + 1)}>
+                                Suivant →
+                            </button>
+                        </div>
+                    )}
+                    <p className="muted" style={{ marginTop: "16px" }}>
+                        Le symbole « — » indique qu'aucune référence HelloAsso n'est enregistrée pour ce ticket.
+                    </p>
+                </section>
+            </>
+        );
+    }
     // Tableau de bord responsable.
     return (
         <>
@@ -600,6 +714,13 @@ export default function EspaceResponsable() {
                     Quitter
                 </button>
             </div>
+            <section className="card">
+                <h2>💳 Administration des paiements</h2>
+                <p className="muted">Consultez les tickets et leurs références de commande HelloAsso.</p>
+                <button className="outline" type="button" onClick={ouvrirPaiements}>
+                    Voir le suivi des paiements →
+                </button>
+            </section>
             <section className="card">
                 <h2>🎄 Inscriptions au maquillage</h2>
                 <div style={{ marginBottom: 20 }}>
