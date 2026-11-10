@@ -253,12 +253,66 @@ function App() {
         return () => { canceled = true; };
     }, []);
 
+    // L'annulation ferme uniquement le panier local : un checkout HelloAsso déjà
+    // créé ne peut pas être révoqué par notre application.
+    function annulerDemande() {
+        const sauvegarde = JSON.parse(sessionStorage.getItem("apel-inscription-en-attente") || "null");
+        if (!sauvegarde?.demande_id) return;
+        const anciennes = JSON.parse(localStorage.getItem("apel-commandes-abandonnees") || "[]");
+        const pending = Array.isArray(anciennes) ? anciennes : [];
+        if (!pending.some(c => c.demande_id === sauvegarde.demande_id)) {
+            pending.push(sauvegarde);
+        }
+        localStorage.setItem("apel-commandes-abandonnees", JSON.stringify(pending));
+        sessionStorage.removeItem("apel-inscription-en-attente");
+        demandeInscriptionRef.current = null;
+        setInscriptionAConfirmer(false);
+        setNames([""]);
+        setNotice("Demande retirée du formulaire. Le paiement HelloAsso précédent peut encore aboutir : un autre paiement ne sera proposé qu'après vérification de son abandon.");
+    }
+
+    async function verifierAnciennesCommandes() {
+        let anciennes;
+        try {
+            anciennes = JSON.parse(localStorage.getItem("apel-commandes-abandonnees") || "[]");
+            if (!Array.isArray(anciennes)) anciennes = [];
+        } catch { anciennes = []; }
+        const restantes = [];
+        for (const commande of anciennes) {
+            try {
+                const hash = await calculerEmpreinteRecuperation(commande.secret_recuperation);
+                const { data, error } = await supabase.functions.invoke("paiement-helloasso", {
+                    body: { action: "verifier", demande_id: commande.demande_id, recuperation_hash: hash }
+                });
+                if (error || !data) {
+                    restantes.push(commande);
+                    continue;
+                }
+                if (data.etat === "payee") {
+                    memoriserTickets(data.tickets);
+                    setNotice("Un paiement précédent a été confirmé. Ses tickets viennent d'être récupérés : vérifiez-les avant tout nouvel achat.");
+                    continue;
+                }
+                if (data.etat !== "abandonnee") restantes.push(commande);
+            } catch {
+                restantes.push(commande);
+            }
+        }
+        localStorage.setItem("apel-commandes-abandonnees", JSON.stringify(restantes));
+        return restantes.length === 0;
+    }
+
     async function reserve() {
         if (inscriptionEnCours || inscriptionAConfirmer) return;
         const clean = names.map((n) => n.trim()).filter(Boolean).slice(0, 10);
         if (!clean.length) return setNotice("Saisissez au moins un prénom.");
         if (!turnstileToken) return setNotice("Vérification de sécurité en cours.");
         setInscriptionEnCours(true);
+        if (!(await verifierAnciennesCommandes())) {
+            setInscriptionEnCours(false);
+            setNotice("Un ancien paiement est encore possible. Pour éviter un double débit, une nouvelle commande sera disponible après vérification de son abandon (jusqu'à 45 minutes).");
+            return;
+        }
         setNotice("");
         const demandeId = crypto.randomUUID();
         const secretRecuperation = genererSecretRecuperation();
@@ -484,6 +538,11 @@ function App() {
                                             disabled={repriseEnCours || inscriptionEnCours}
                                             onClick={reprendrePaiement}>
                                             {repriseEnCours ? "Vérification du paiement..." : "Reprendre ou vérifier mon paiement"}
+                                        </button>
+                                        <button type="button" className="link danger"
+                                            disabled={repriseEnCours || inscriptionEnCours}
+                                            onClick={annulerDemande}>
+                                            Annuler ma demande
                                         </button>
                                     </div>
                                 )}
