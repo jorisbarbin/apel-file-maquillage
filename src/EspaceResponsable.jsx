@@ -637,7 +637,7 @@ export default function EspaceResponsable() {
                     <h2>🎨 Tarif du maquillage</h2>
                 <div style={{ marginBottom: 20 }}>
                     <label>Prix par enfant (€)
-                        <input type="text" inputMode="decimal" value={prixEnfant}
+                        <input className="admin-input" type="text" inputMode="decimal" value={prixEnfant}
                             onChange={(e) => setPrixEnfant(e.target.value)} placeholder="3,00" />
                     </label>
                     <button className="outline" disabled={chargement} onClick={enregistrerPrix}>
@@ -1003,6 +1003,7 @@ export default function EspaceResponsable() {
                     Prénom du nouveau bénévole
                     <input
                         type="text"
+                        className="admin-input"
                         placeholder="Ex. : Julie"
                         maxLength={35}
                         value={nouveauPrenom}
