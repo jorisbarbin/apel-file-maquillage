@@ -63,6 +63,8 @@ function App() {
     const [inscriptionAConfirmer, setInscriptionAConfirmer] = useState(false);
     const [repriseEnCours, setRepriseEnCours] = useState(false);
     const [editionPrenoms, setEditionPrenoms] = useState(false);
+    const [erreurTurnstile, setErreurTurnstile] = useState(null);
+    const [versionTurnstile, setVersionTurnstile] = useState(0);
     const turnstileRef = useRef(null);
     // Mémoriser la demande d'inscription en cours.
     // Conserver la demande en attente, même après actualisation de la page.
@@ -528,24 +530,38 @@ function App() {
                                         {" · "}Total du panier : {((prixEnfantCentimes * names.filter(n => n.trim()).length) / 100).toLocaleString("fr-FR", { style: "currency", currency: "EUR" })}
                                     </p>
                                 )}
-                                <Turnstile
-                                    ref={turnstileRef}
-                                    siteKey={import.meta.env.VITE_TURNSTILE_SITE_KEY}
-                                    onSuccess={(token) => {
-                                        setTurnstileToken(token);
-                                        console.log("✅ Vérification Cloudflare réussie");
-                                    }}
-                                    onExpire={() => {
-                                        setTurnstileToken(null);
-                                    }}
-                                    onError={(code) => {
-                                        setTurnstileToken(null);
-                                        console.error("Erreur Cloudflare Turnstile, code :", code);
-                                        setNotice(
-                                            `La vérification de sécurité a échoué (code ${code}).`
-                                        );
-                                    }}
-                                />
+                                {!inscriptionAConfirmer && (
+                                    <>
+                                        <Turnstile
+                                            key={versionTurnstile}
+                                            ref={turnstileRef}
+                                            siteKey={import.meta.env.VITE_TURNSTILE_SITE_KEY}
+                                            onSuccess={(token) => {
+                                                setTurnstileToken(token);
+                                                setErreurTurnstile(null);
+                                            }}
+                                            onExpire={() => setTurnstileToken(null)}
+                                            onError={(code) => {
+                                                setTurnstileToken(null);
+                                                setErreurTurnstile(String(code));
+                                                console.error("Erreur Cloudflare Turnstile, code :", code);
+                                            }}
+                                        />
+                                        {erreurTurnstile && (
+                                            <div className="notice">
+                                                <p>La vérification de sécurité n'a pas abouti (code {erreurTurnstile}). Vous pouvez la relancer sans perdre votre panier.</p>
+                                                <button type="button" className="outline"
+                                                    onClick={() => {
+                                                        setTurnstileToken(null);
+                                                        setErreurTurnstile(null);
+                                                        setVersionTurnstile(n => n + 1);
+                                                    }}>
+                                                    Réessayer la vérification
+                                                </button>
+                                            </div>
+                                        )}
+                                    </>
+                                )}
                                 {inscriptionAConfirmer && (
                                     <div className="notice">
                                         <p>Votre panier est conservé. Vous pouvez corriger les prénoms sans créer un nouveau paiement.</p>
