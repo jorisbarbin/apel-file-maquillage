@@ -61,6 +61,7 @@ function App() {
     const [turnstileToken, setTurnstileToken] = useState(null);
     const [inscriptionEnCours, setInscriptionEnCours] = useState(false);
     const [inscriptionAConfirmer, setInscriptionAConfirmer] = useState(false);
+    const [repriseEnCours, setRepriseEnCours] = useState(false);
     const turnstileRef = useRef(null);
     // Mémoriser la demande d'inscription en cours.
     // Conserver la demande en attente, même après actualisation de la page.
@@ -176,13 +177,53 @@ function App() {
         setNotice("🎉 Paiement confirmé ! Vos tickets sont disponibles.");
     }
 
+    // Reprendre la commande existante, sans réutiliser Turnstile ni créer de second paiement.
+    async function reprendrePaiement() {
+        if (repriseEnCours || inscriptionEnCours) return;
+        const sauvegarde = JSON.parse(sessionStorage.getItem("apel-inscription-en-attente") || "null");
+        if (!sauvegarde?.demande_id || !sauvegarde?.secret_recuperation) {
+            setInscriptionAConfirmer(false);
+            setNotice("Aucune commande en cours n'a été retrouvée.");
+            return;
+        }
+        setRepriseEnCours(true);
+        setNotice("Vérification du paiement précédent...");
+        try {
+            const recuperationHash = await calculerEmpreinteRecuperation(sauvegarde.secret_recuperation);
+            const { data, error } = await supabase.functions.invoke("paiement-helloasso", {
+                body: { action: "reprendre", demande_id: sauvegarde.demande_id,
+                    recuperation_hash: recuperationHash }
+            });
+            if (error || !data) throw new Error(data?.erreur || "Vérification indisponible.");
+            if (data.etat === "payee") {
+                memoriserTickets(data.tickets);
+            } else if (data.redirect_url) {
+                window.location.assign(data.redirect_url);
+            } else if (data.etat === "abandonnee") {
+                sessionStorage.removeItem("apel-inscription-en-attente");
+                demandeInscriptionRef.current = null;
+                setInscriptionAConfirmer(false);
+                setNotice("Le précédent paiement n'a pas été confirmé. Vous pouvez recommencer.");
+            } else if (data.etat === "lien_expire") {
+                setNotice("Le lien de paiement a expiré. Pour éviter un double débit, une nouvelle inscription sera possible après vérification de l'ancien paiement (45 minutes après sa création).");
+            } else {
+                setNotice("Ce paiement est encore en cours ou en vérification. Réessayez dans quelques instants.");
+            }
+        } catch (error) {
+            setNotice(error.message || "Impossible de retrouver ce paiement. Réessayez.");
+        } finally {
+            setRepriseEnCours(false);
+        }
+    }
+
     useEffect(() => {
         const current = new URL(window.location.href);
-        const demandeId = current.searchParams.get("paiement");
+        const sauvegarde = JSON.parse(sessionStorage.getItem("apel-inscription-en-attente") || "null");
+        const demandeId = current.searchParams.get("paiement") ||
+            (current.searchParams.has("checkoutIntentId") ? sauvegarde?.demande_id : null);
         if (!demandeId) return;
         let canceled = false;
         let retries = 0;
-        const sauvegarde = JSON.parse(sessionStorage.getItem("apel-inscription-en-attente") || "null");
         if (sauvegarde?.demande_id !== demandeId) {
             setNotice("Pour récupérer les tickets, revenez sur le navigateur utilisé pour commander.");
             return;
@@ -436,11 +477,22 @@ function App() {
                                         );
                                     }}
                                 />
+                                {inscriptionAConfirmer && (
+                                    <div className="notice">
+                                        <p>Une commande existe déjà pour ce panier. Retrouvez son paiement ou vérifiez son état sans recréer d'inscription.</p>
+                                        <button className="outline" type="button"
+                                            disabled={repriseEnCours || inscriptionEnCours}
+                                            onClick={reprendrePaiement}>
+                                            {repriseEnCours ? "Vérification du paiement..." : "Reprendre ou vérifier mon paiement"}
+                                        </button>
+                                    </div>
+                                )}
                                 <button
                                     className="primary"
                                     onClick={reserve}
                                     disabled={
                                         inscriptionEnCours ||
+                                        inscriptionAConfirmer ||
                                         !turnstileToken ||
                                         !prixEnfantCentimes ||
 
