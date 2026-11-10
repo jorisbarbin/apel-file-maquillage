@@ -250,6 +250,7 @@ export default function EspaceBenevole() {
                 <label>
                     Votre prénom
                     <select
+                        className="admin-input"
                         value={benevoleId}
                         onChange={(e) => setBenevoleId(e.target.value)}
                     >
