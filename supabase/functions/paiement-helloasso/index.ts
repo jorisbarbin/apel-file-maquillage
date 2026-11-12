@@ -37,6 +37,13 @@ Deno.serve(async (req) => {
       if (cached && new Date(cached.expires_at).getTime() > Date.now() + 120_000) {
         return cached.access_token as string;
       }
+      const oauthMode = cached ? "refresh_token" : "client_credentials";
+      console.info("HelloAsso OAuth : mode authentification", {
+        mode: oauthMode,
+        cache_present: Boolean(cached),
+        cache_jeton_valide: false,
+        environnement: base.includes("-sandbox.") ? "sandbox" : "production",
+      });
       const params = cached
         ? new URLSearchParams({ grant_type: "refresh_token", refresh_token: cached.refresh_token })
         : new URLSearchParams({ grant_type: "client_credentials", client_id: clientId!, client_secret: clientSecret! });
