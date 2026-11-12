@@ -87,6 +87,20 @@ Deno.serve(async (req) => {
           }
         }
 
+        // Identifier la famille de page HTML sans jamais journaliser son contenu.
+        // Le corps peut contenir des détails techniques : seules des catégories fixes sortent.
+        if (diagnostic.type_reponse === "html") {
+          try {
+            const page = (await response.clone().text()).slice(0, 30000).toLowerCase();
+            const codeCloudflare = page.match(/(?:error\\s*|code\\s*|erreur\\s*)(1020|1015|1006|1007|1008|1010|1012|1013|1014|1018|1027)\\b/);
+            diagnostic.code_cloudflare = codeCloudflare?.[1] || null;
+            diagnostic.page_acces_refuse = /access denied|access to this page has been denied|sorry, you have been blocked|accès refusé/.test(page);
+            diagnostic.page_blocage_cloudflare = /cloudflare|attention required!|ray id/.test(page);
+            diagnostic.page_limitation_debit = /rate limit|too many requests|temporarily restricted/.test(page);
+          } catch {
+            diagnostic.analyse_page_indisponible = true;
+          }
+        }
         console.error("HelloAsso OAuth : diagnostic sécurisé", diagnostic);
         throw new Error("Authentification HelloAsso indisponible");
       }
