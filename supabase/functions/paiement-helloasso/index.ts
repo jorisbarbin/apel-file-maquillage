@@ -45,9 +45,39 @@ Deno.serve(async (req) => {
         body: params, signal: AbortSignal.timeout(10000)
       });
       if (!response.ok) {
-        // Diagnostic sans divulguer les identifiants ni le corps de réponse OAuth.
-        console.error("HelloAsso OAuth : échec HTTP", response.status,
-          "environnement", Deno.env.get("HELLOASSO_SANDBOX") === "true" ? "sandbox" : "production");
+        // Ne jamais journaliser la réponse brute : elle pourrait contenir
+        // des informations sensibles. Seules des métadonnées sûres sont relevées.
+        const contentType = response.headers.get("content-type") || "";
+        const cfMitigated = response.headers.get("cf-mitigated");
+        const diagnostic: Record<string, string | number | boolean | null> = {
+          statut_http: response.status,
+          environnement: base.includes("-sandbox.") ? "sandbox" : "production",
+          type_reponse: contentType.toLowerCase().includes("application/json")
+            ? "json"
+            : contentType.toLowerCase().includes("text/html")
+              ? "html"
+              : "autre",
+          fournisseur_cloudflare: Boolean(response.headers.get("cf-ray")),
+          challenge_cloudflare: cfMitigated === "challenge",
+        };
+
+        // Ne relever que les valeurs OAuth connues et bornées,
+        // jamais error_description, les jetons ou le contenu HTML.
+        if (diagnostic.type_reponse === "json") {
+          try {
+            const erreurOAuth = await response.clone().json();
+            const code = erreurOAuth?.error;
+            if (typeof code === "string" &&
+                ["invalid_client", "unauthorized_client", "invalid_request",
+                  "unsupported_grant_type", "access_denied", "invalid_grant"].includes(code)) {
+              diagnostic.code_oauth = code;
+            }
+          } catch {
+            diagnostic.json_invalide = true;
+          }
+        }
+
+        console.error("HelloAsso OAuth : diagnostic sécurisé", diagnostic);
         throw new Error("Authentification HelloAsso indisponible");
       }
       const oauth = await response.json();
