@@ -92,7 +92,7 @@ Deno.serve(async (req) => {
         if (diagnostic.type_reponse === "html") {
           try {
             const page = (await response.clone().text()).slice(0, 30000).toLowerCase();
-            const codeCloudflare = page.match(/(?:error\\s*|code\\s*|erreur\\s*)(1020|1015|1006|1007|1008|1010|1012|1013|1014|1018|1027)\\b/);
+            const codeCloudflare = page.match(/(?:error\s*|code\s*|erreur\s*)(1020|1015|1006|1007|1008|1010|1012|1013|1014|1018|1027)\b/);
             diagnostic.code_cloudflare = codeCloudflare?.[1] || null;
             diagnostic.page_acces_refuse = /access denied|access to this page has been denied|sorry, you have been blocked|accès refusé/.test(page);
             diagnostic.page_blocage_cloudflare = /cloudflare|attention required!|ray id/.test(page);
