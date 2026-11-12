@@ -48,7 +48,7 @@ Deno.serve(async (req) => {
         ? new URLSearchParams({ grant_type: "refresh_token", refresh_token: cached.refresh_token })
         : new URLSearchParams({ grant_type: "client_credentials", client_id: clientId!, client_secret: clientSecret! });
       const response = await fetch(base + "/oauth2/token", {
-        method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded", "Accept": "application/json" },
         body: params, signal: AbortSignal.timeout(10000)
       });
       if (!response.ok) {
@@ -65,7 +65,10 @@ Deno.serve(async (req) => {
               ? "html"
               : "autre",
           fournisseur_cloudflare: Boolean(response.headers.get("cf-ray")),
+          cf_ray: response.headers.get("cf-ray") || null,
           challenge_cloudflare: cfMitigated === "challenge",
+          requete_content_type: "application/x-www-form-urlencoded",
+          requete_accept: "application/json",
         };
 
         // Ne relever que les valeurs OAuth connues et bornées,
