@@ -292,7 +292,34 @@ Deno.serve(async (req) => {
       }),
       signal: AbortSignal.timeout(12000)
     });
-    if (!response.ok) throw new Error("Impossible d'initialiser le paiement HelloAsso");
+    if (!response.ok) {
+      // Diagnostic sans journaliser les corps de réponses (risque de données sensibles).
+      const type = response.headers.get("content-type") || "";
+      const diagnostic: Record<string, string | number | boolean | null> = {
+        statut_http: response.status,
+        type_reponse: type.toLowerCase().includes("json") ? "json" :
+          type.toLowerCase().includes("html") ? "html" : "autre",
+        cf_ray: response.headers.get("cf-ray"),
+        challenge_cloudflare: response.headers.get("cf-mitigated") === "challenge",
+        user_agent: HELLOASSO_USER_AGENT,
+      };
+      if (type.toLowerCase().includes("json")) {
+        try {
+          const data = await response.clone().json();
+          // Ne garder que les codes explicitement reconnus et de taille bornée.
+          for (const key of ["code", "error", "type"] as const) {
+            const value = data?.[key];
+            if (typeof value === "string" && /^[a-zA-Z0-9_.-]{1,64}$/.test(value)) {
+              diagnostic["api_" + key] = value;
+            }
+          }
+        } catch {
+          diagnostic.json_invalide = true;
+        }
+      }
+      console.error("HelloAsso Checkout : diagnostic création", diagnostic);
+      throw new Error("Impossible d'initialiser le paiement HelloAsso");
+    }
     const checkout = await response.json();
     if (!Number.isSafeInteger(checkout.id) || !/^https:\/\//.test(checkout.redirectUrl || "")) {
       throw new Error("Réponse HelloAsso invalide");
