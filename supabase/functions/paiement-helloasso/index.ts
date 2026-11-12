@@ -44,7 +44,12 @@ Deno.serve(async (req) => {
         method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" },
         body: params, signal: AbortSignal.timeout(10000)
       });
-      if (!response.ok) throw new Error("Authentification HelloAsso indisponible");
+      if (!response.ok) {
+        // Diagnostic sans divulguer les identifiants ni le corps de réponse OAuth.
+        console.error("HelloAsso OAuth : échec HTTP", response.status,
+          "environnement", Deno.env.get("HELLOASSO_SANDBOX") === "true" ? "sandbox" : "production");
+        throw new Error("Authentification HelloAsso indisponible");
+      }
       const oauth = await response.json();
       if (!oauth.access_token || !oauth.refresh_token) throw new Error("Réponse OAuth incomplète");
       const { error } = await supabase.from("helloasso_auth_cache").upsert({
