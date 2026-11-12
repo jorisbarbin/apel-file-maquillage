@@ -7,6 +7,7 @@ const cors = {
 };
 const respond = (body: unknown, status = 200) =>
   Response.json(body, { status, headers: { ...cors, "Cache-Control": "no-store" } });
+const HELLOASSO_USER_AGENT = "APEL-Maquillage/1.0";
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 Deno.serve(async (req) => {
@@ -48,7 +49,7 @@ Deno.serve(async (req) => {
         ? new URLSearchParams({ grant_type: "refresh_token", refresh_token: cached.refresh_token })
         : new URLSearchParams({ grant_type: "client_credentials", client_id: clientId!, client_secret: clientSecret! });
       const response = await fetch(base + "/oauth2/token", {
-        method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded", "Accept": "application/json" },
+        method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded", "Accept": "application/json", "User-Agent": HELLOASSO_USER_AGENT },
         body: params, signal: AbortSignal.timeout(10000)
       });
       if (!response.ok) {
@@ -138,7 +139,7 @@ Deno.serve(async (req) => {
         const accessToken = await token();
         const verification = await fetch(base + "/v5/organizations/" + encodeURIComponent(slug) +
           "/checkout-intents/" + commande.checkout_intent_id, {
-          headers: { Authorization: "Bearer " + accessToken, Accept: "application/json" },
+          headers: { Authorization: "Bearer " + accessToken, Accept: "application/json", "User-Agent": HELLOASSO_USER_AGENT },
           signal: AbortSignal.timeout(10000)
         });
         if (!verification.ok) {
@@ -173,7 +174,7 @@ Deno.serve(async (req) => {
       const accessToken = await token();
       const response = await fetch(base + "/v5/organizations/" + encodeURIComponent(slug) +
         "/checkout-intents/" + commande.checkout_intent_id, {
-        headers: { Authorization: "Bearer " + accessToken, Accept: "application/json" },
+        headers: { Authorization: "Bearer " + accessToken, Accept: "application/json", "User-Agent": HELLOASSO_USER_AGENT },
         signal: AbortSignal.timeout(10000)
       });
       if (!response.ok) throw new Error("Vérification HelloAsso indisponible");
@@ -280,7 +281,7 @@ Deno.serve(async (req) => {
     const paymentUrl = origin.replace(/\/$/, "") + "/?paiement=" + encodeURIComponent(body.demande_id);
     const response = await fetch(base + "/v5/organizations/" + encodeURIComponent(slug) + "/checkout-intents", {
       method: "POST",
-      headers: { Authorization: "Bearer " + accessToken, "Content-Type": "application/json", Accept: "application/json" },
+      headers: { Authorization: "Bearer " + accessToken, "Content-Type": "application/json", Accept: "application/json", "User-Agent": HELLOASSO_USER_AGENT },
       body: JSON.stringify({
         totalAmount: amount, initialAmount: amount, containsDonation: false,
         itemName: "Maquillage - " + prenoms.length + " enfant(s)",
